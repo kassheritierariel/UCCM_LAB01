@@ -1,0 +1,344 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - name: string (required)
+    //   - email: string (required)
+    //   - role: string (required, enum: 'student', 'professor', 'admin', 'cashier', 'chef', 'super_admin')
+    //   - faculty: string (optional)
+    //   - promotion: string (optional)
+    //   - subscriptionStatus: string (optional, enum: 'active', 'inactive')
+    //   - tenantId: string (required)
+    //   - tenantName: string (optional)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: institutions
+    // Document ID: {institutionId}
+    // Fields:
+    //   - name: string (required)
+    //   - domain: string (required)
+    //   - plan: string (required, enum: 'basic', 'pro', 'enterprise')
+    //   - status: string (required, enum: 'active', 'suspended', 'trial')
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: documents
+    // Document ID: {docId}
+    // Fields:
+    //   - title: string (required)
+    //   - type: string (required, enum: 'tfc', 'memoire', 'pedagogical')
+    //   - authorId: string (required)
+    //   - authorName: string (required)
+    //   - faculty: string (required)
+    //   - promotion: string (optional)
+    //   - courseId: string (optional)
+    //   - status: string (required, enum: 'pending_payment', 'pending_validation', 'published')
+    //   - fileUrl: string (optional)
+    //   - tenantId: string (required)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: payments
+    // Document ID: {paymentId}
+    // Fields:
+    //   - studentId: string (required)
+    //   - studentName: string (required)
+    //   - amount: number (required)
+    //   - type: string (required, enum: 'deposit_fee', 'subscription')
+    //   - status: string (required, enum: 'pending', 'completed', 'failed')
+    //   - receiptUrl: string (optional)
+    //   - tenantId: string (required)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: courses
+    // Document ID: {courseId}
+    // Fields:
+    //   - name: string (required)
+    //   - faculty: string (required)
+    //   - promotion: string (required)
+    //   - professorId: string (required)
+    //   - tenantId: string (required)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: notifications
+    // Document ID: {notificationId}
+    // Fields:
+    //   - userId: string (required)
+    //   - message: string (required)
+    //   - read: boolean (required)
+    //   - tenantId: string (required)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: messages
+    // Document ID: {messageId}
+    // Fields:
+    //   - groupId: string (required)
+    //   - senderId: string (required)
+    //   - senderName: string (required)
+    //   - text: string (required)
+    //   - tenantId: string (required)
+    //   - createdAt: timestamp (required)
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && userExists() && 'role' in getUserData() && getUserData().role == role;
+    }
+
+    function isSuperAdmin() {
+      return (isAuthenticated() && request.auth.token != null && 'email' in request.auth.token && request.auth.token.email == "kassheritier@telgroups.org") || hasRole('super_admin');
+    }
+
+    function isAdmin() {
+      return hasRole('admin') || isSuperAdmin();
+    }
+
+    function isCashier() {
+      return hasRole('cashier') || isSuperAdmin();
+    }
+
+    function isChef() {
+      return hasRole('chef') || isSuperAdmin();
+    }
+
+    function isProfessor() {
+      return hasRole('professor') || isSuperAdmin();
+    }
+
+    function isStudent() {
+      return hasRole('student') || isSuperAdmin();
+    }
+
+    function isSameTenant(data) {
+      return isSuperAdmin() || (isAuthenticated() && userExists() && data.tenantId == getUserData().tenantId);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+             request.resource.data[field].size() >= minLen &&
+             request.resource.data[field].size() <= maxLen;
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+             email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'name', 'email', 'role', 'tenantId', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             isValidEmail(data.email) &&
+             data.role in ['student', 'professor', 'admin', 'cashier', 'chef', 'super_admin'] &&
+             data.tenantId is string && data.tenantId.size() > 0 &&
+             data.createdAt is timestamp &&
+             (!('faculty' in data) || (data.faculty is string && data.faculty.size() < 100)) &&
+             (!('promotion' in data) || (data.promotion is string && data.promotion.size() < 100)) &&
+             (!('tenantName' in data) || (data.tenantName is string && data.tenantName.size() < 100)) &&
+             (!('subscriptionStatus' in data) || data.subscriptionStatus in ['active', 'inactive']) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() < 20)) &&
+             (!('address' in data) || (data.address is string && data.address.size() < 200)) &&
+             (!('studentId' in data) || (data.studentId is string && data.studentId.size() < 50));
+    }
+
+    function isValidInstitution(data) {
+      return hasRequiredFields(['name', 'domain', 'plan', 'status', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.domain is string && data.domain.size() > 0 && data.domain.size() < 100 &&
+             data.plan in ['basic', 'pro', 'enterprise'] &&
+             data.status in ['active', 'suspended', 'trial'] &&
+             data.createdAt is timestamp &&
+             (!('settings' in data) || data.settings is map);
+    }
+
+    function isValidDocument(data) {
+      return hasRequiredFields(['title', 'type', 'authorId', 'authorName', 'faculty', 'status', 'tenantId', 'createdAt']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.type in ['tfc', 'memoire', 'pedagogical'] &&
+             data.authorId is string && data.authorId.size() > 0 &&
+             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() < 100 &&
+             data.faculty is string && data.faculty.size() > 0 && data.faculty.size() < 100 &&
+             data.status in ['pending_payment', 'pending_validation', 'published'] &&
+             data.tenantId is string && data.tenantId.size() > 0 &&
+             data.createdAt is timestamp &&
+             (!('promotion' in data) || (data.promotion is string && data.promotion.size() < 100)) &&
+             (!('courseId' in data) || (data.courseId is string && data.courseId.size() < 100)) &&
+             (!('fileUrl' in data) || (data.fileUrl is string && data.fileUrl.size() < 1000));
+    }
+
+    function isValidPayment(data) {
+      return hasRequiredFields(['studentId', 'studentName', 'amount', 'type', 'status', 'tenantId', 'createdAt']) &&
+             data.studentId is string && data.studentId.size() > 0 &&
+             data.studentName is string && data.studentName.size() > 0 && data.studentName.size() < 100 &&
+             data.amount is number && data.amount > 0 &&
+             data.type in ['deposit_fee', 'subscription'] &&
+             data.status in ['pending', 'completed', 'failed'] &&
+             data.tenantId is string && data.tenantId.size() > 0 &&
+             data.createdAt is timestamp &&
+             (!('receiptUrl' in data) || (data.receiptUrl is string && data.receiptUrl.size() < 1000));
+    }
+
+    function isValidCourse(data) {
+      return hasRequiredFields(['name', 'faculty', 'promotion', 'professorId', 'tenantId', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.faculty is string && data.faculty.size() > 0 && data.faculty.size() < 100 &&
+             data.promotion is string && data.promotion.size() > 0 && data.promotion.size() < 100 &&
+             data.professorId is string && data.professorId.size() > 0 &&
+             data.tenantId is string && data.tenantId.size() > 0 &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
+             (!('enrolledStudents' in data) || data.enrolledStudents is list) &&
+             (!('deadline' in data) || (data.deadline is string && data.deadline.size() <= 100)) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return hasRequiredFields(['userId', 'message', 'read', 'tenantId', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.message is string && data.message.size() > 0 && data.message.size() < 500 &&
+             data.read is bool &&
+             data.tenantId is string && data.tenantId.size() > 0 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidMessage(data) {
+      return hasRequiredFields(['groupId', 'senderId', 'senderName', 'text', 'tenantId', 'createdAt']) &&
+             data.groupId is string && data.groupId.size() > 0 && data.groupId.size() < 100 &&
+             data.senderId is string && data.senderId.size() > 0 &&
+             data.senderName is string && data.senderName.size() > 0 && data.senderName.size() < 100 &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 2000 &&
+             data.tenantId is string && data.tenantId.size() > 0 &&
+             data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isSameTenant(resource.data));
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
+        (isOwner(userId) && request.resource.data.role == 'student') || 
+        (isAdmin() && (isSuperAdmin() || request.resource.data.role != 'super_admin')) ||
+        (isOwner(userId) && request.resource.data.email.matches("^demo\\..*@saas\\.edu$")) || // ALLOW DEMO ACCOUNTS
+        (isOwner(userId) && request.resource.data.email == 'kassheritier@telgroups.org' && request.resource.data.role == 'super_admin')
+      );
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
+        (isOwner(userId) && areImmutableFieldsUnchanged(['uid', 'role', 'tenantId', 'createdAt'])) || 
+        (isSuperAdmin() && areImmutableFieldsUnchanged(['uid', 'createdAt'])) ||
+        (isAdmin() && !isSuperAdmin() && isSameTenant(resource.data) && areImmutableFieldsUnchanged(['uid', 'tenantId', 'createdAt']) && resource.data.role != 'super_admin' && request.resource.data.role != 'super_admin')
+      );
+      allow delete: if isAdmin() && isSameTenant(resource.data) && (isSuperAdmin() || resource.data.role != 'super_admin');
+    }
+
+    match /institutions/{institutionId} {
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() || 
+        (userExists() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == institutionId) ||
+        ('email' in request.auth.token && resource != null && 'contactEmail' in resource.data && resource.data.contactEmail == request.auth.token.email)
+      );
+      allow create: if isSuperAdmin() && isValidInstitution(request.resource.data);
+      allow update: if isAuthenticated() && isValidInstitution(request.resource.data) && areImmutableFieldsUnchanged(['createdAt']) && (
+        isSuperAdmin() || 
+        (isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == institutionId && areImmutableFieldsUnchanged(['domain', 'plan', 'status']))
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    match /documents/{docId} {
+      allow read: if isAuthenticated() && isSameTenant(resource.data);
+      allow create: if isAuthenticated() && isValidDocument(request.resource.data) && isSameTenant(request.resource.data) && (
+        (request.resource.data.authorId == request.auth.uid) || isAdmin()
+      );
+      allow update: if isAuthenticated() && isValidDocument(request.resource.data) && isSameTenant(resource.data) && (
+        (resource.data.authorId == request.auth.uid && areImmutableFieldsUnchanged(['authorId', 'tenantId', 'createdAt'])) ||
+        isAdmin() || isChef()
+      );
+      allow delete: if isAuthenticated() && isSameTenant(resource.data) && (isAdmin() || (resource.data.authorId == request.auth.uid));
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated() && isSameTenant(resource.data) && (resource.data.studentId == request.auth.uid || isAdmin() || isCashier());
+      allow create: if isAuthenticated() && isValidPayment(request.resource.data) && isSameTenant(request.resource.data) && (
+        request.resource.data.studentId == request.auth.uid || isAdmin()
+      );
+      allow update: if isAuthenticated() && isValidPayment(request.resource.data) && isSameTenant(resource.data) && (
+        isAdmin() || isCashier() || (resource.data.studentId == request.auth.uid && areImmutableFieldsUnchanged(['studentId', 'amount', 'type', 'tenantId', 'createdAt']))
+      );
+      allow delete: if isAdmin() && isSameTenant(resource.data);
+    }
+
+    match /courses/{courseId} {
+      allow read: if isAuthenticated() && isSameTenant(resource.data);
+      allow create: if isAuthenticated() && isValidCourse(request.resource.data) && isSameTenant(request.resource.data) && (isAdmin() || isProfessor());
+      allow update: if isAuthenticated() && isValidCourse(request.resource.data) && isSameTenant(resource.data) && (isAdmin() || (isProfessor() && resource.data.professorId == request.auth.uid));
+      allow delete: if isAuthenticated() && isSameTenant(resource.data) && (isAdmin() || (isProfessor() && resource.data.professorId == request.auth.uid));
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && isSameTenant(resource.data) && (resource.data.userId == request.auth.uid || isAdmin() || isChef() || isCashier());
+      allow create: if isAuthenticated() && isValidNotification(request.resource.data) && isSameTenant(request.resource.data);
+      allow update: if isAuthenticated() && isValidNotification(request.resource.data) && isSameTenant(resource.data) && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAuthenticated() && isSameTenant(resource.data) && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /messages/{messageId} {
+      allow read: if isAuthenticated() && isSameTenant(resource.data);
+      allow create: if isAuthenticated() && isValidMessage(request.resource.data) && isSameTenant(request.resource.data) && request.resource.data.senderId == request.auth.uid;
+      allow update: if isAuthenticated() && isValidMessage(request.resource.data) && isSameTenant(resource.data) && (resource.data.senderId == request.auth.uid || isAdmin());
+      allow delete: if isAuthenticated() && isSameTenant(resource.data) && (resource.data.senderId == request.auth.uid || isAdmin());
+    }
+
+    match /generalChat/{messageId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && 
+                    request.resource.data.keys().hasAll(['text', 'senderId', 'senderName', 'timestamp']) &&
+                    request.resource.data.text is string &&
+                    request.resource.data.senderId == request.auth.uid &&
+                    request.resource.data.senderName is string &&
+                    request.resource.data.timestamp is timestamp;
+      allow update, delete: if false; // Messages in general chat are immutable for now
+    }
+  }
+}

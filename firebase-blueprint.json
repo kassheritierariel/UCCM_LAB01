@@ -1,0 +1,141 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user in the SaaS system (student, professor, admin, cashier, chef, super_admin)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string", "description": "Full name" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["student", "professor", "admin", "cashier", "chef", "super_admin"] },
+        "faculty": { "type": "string", "description": "Faculty name (if applicable)" },
+        "promotion": { "type": "string", "description": "Promotion/Year (if student)" },
+        "subscriptionStatus": { "type": "string", "enum": ["active", "inactive"], "description": "Subscription for accessing restricted docs" },
+        "tenantId": { "type": "string", "description": "ID of the institution this user belongs to, or SYSTEM for super admins" },
+        "tenantName": { "type": "string", "description": "Name of the institution" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email", "role", "createdAt"]
+    },
+    "AcademicDocument": {
+      "title": "Academic Document",
+      "description": "TFC, Mémoire, or Pedagogical document",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["tfc", "memoire", "pedagogical"] },
+        "authorId": { "type": "string", "$ref": "#/entities/User" },
+        "authorName": { "type": "string" },
+        "faculty": { "type": "string" },
+        "promotion": { "type": "string" },
+        "courseId": { "type": "string", "description": "If pedagogical" },
+        "status": { "type": "string", "enum": ["pending_payment", "pending_validation", "published"] },
+        "fileUrl": { "type": "string", "format": "uri" },
+        "tenantId": { "type": "string", "description": "ID of the institution" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "type", "authorId", "authorName", "faculty", "status", "tenantId", "createdAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Payment for TFC/Mémoire deposit or subscription",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string", "$ref": "#/entities/User" },
+        "studentName": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["deposit_fee", "subscription"] },
+        "status": { "type": "string", "enum": ["pending", "completed", "failed"] },
+        "receiptUrl": { "type": "string", "format": "uri" },
+        "tenantId": { "type": "string", "description": "ID of the institution" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "studentName", "amount", "type", "status", "tenantId", "createdAt"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "A course taught by a professor",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "faculty": { "type": "string" },
+        "promotion": { "type": "string" },
+        "professorId": { "type": "string", "$ref": "#/entities/User" },
+        "tenantId": { "type": "string", "description": "ID of the institution" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "faculty", "promotion", "professorId", "tenantId", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System notification for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "$ref": "#/entities/User" },
+        "message": { "type": "string" },
+        "read": { "type": "boolean" },
+        "tenantId": { "type": "string", "description": "ID of the institution" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "message", "read", "tenantId", "createdAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Chat message in a promotion/group",
+      "type": "object",
+      "properties": {
+        "groupId": { "type": "string", "description": "Promotion ID or Course ID" },
+        "senderId": { "type": "string", "$ref": "#/entities/User" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "tenantId": { "type": "string", "description": "ID of the institution" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["groupId", "senderId", "senderName", "text", "tenantId", "createdAt"]
+    },
+    "Institution": {
+      "title": "Institution",
+      "description": "A tenant/institution using the SaaS platform",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "domain": { "type": "string" },
+        "plan": { "type": "string", "enum": ["basic", "pro", "enterprise"] },
+        "status": { "type": "string", "enum": ["active", "suspended", "trial"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "domain", "plan", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Collection of all users"
+    },
+    "documents": {
+      "schema": "AcademicDocument",
+      "description": "Collection of all academic documents"
+    },
+    "payments": {
+      "schema": "Payment",
+      "description": "Collection of all payments"
+    },
+    "courses": {
+      "schema": "Course",
+      "description": "Collection of all courses"
+    },
+    "notifications": {
+      "schema": "Notification",
+      "description": "Collection of all notifications"
+    },
+    "messages": {
+      "schema": "Message",
+      "description": "Collection of all chat messages"
+    },
+    "institutions": {
+      "schema": "Institution",
+      "description": "Collection of all SaaS institutions (tenants)"
+    }
+  }
+}
