@@ -101,6 +101,7 @@ export default function UsersManager() {
     const matchesSearch = u.name?.toLowerCase().includes(searchLower) || 
                           u.email?.toLowerCase().includes(searchLower) ||
                           u.matricule?.toLowerCase().includes(searchLower) ||
+                          (u as any).studentId?.toLowerCase().includes(searchLower) ||
                           roleConfig[u.role]?.label.toLowerCase().includes(searchLower);
     const matchesRole = roleFilter === 'all' || u.role === roleFilter;
     return matchesSearch && matchesRole;
@@ -387,9 +388,9 @@ export default function UsersManager() {
 
       {/* Edit Modal */}
       {editingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-auto animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10 rounded-t-2xl">
               <h3 className="text-lg font-bold text-slate-800">Modifier l'utilisateur</h3>
               <button 
                 onClick={() => setEditingUser(null)}
@@ -399,77 +400,79 @@ export default function UsersManager() {
               </button>
             </div>
             
-            <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Nom complet</label>
-                <input 
-                  type="text" 
-                  value={editingUser.name} 
-                  disabled
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 cursor-not-allowed"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Email</label>
-                <input 
-                  type="email" 
-                  value={editingUser.email} 
-                  disabled
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 cursor-not-allowed"
-                />
-              </div>
+            <form onSubmit={handleSaveEdit} className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Nom complet</label>
+                  <input 
+                    type="text" 
+                    value={editingUser.name} 
+                    disabled
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 cursor-not-allowed"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Email</label>
+                  <input 
+                    type="email" 
+                    value={editingUser.email} 
+                    disabled
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 cursor-not-allowed"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Rôle</label>
-                <select 
-                  value={editingUser.role}
-                  onChange={(e) => setEditingUser({...editingUser, role: e.target.value as any})}
-                  disabled={user?.role !== 'super_admin' && user?.role !== 'admin'}
-                  className={`w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${(user?.role !== 'super_admin' && user?.role !== 'admin') ? 'bg-slate-50 cursor-not-allowed text-slate-500' : ''}`}
-                >
-                  <option value="student">Étudiant</option>
-                  <option value="professor">Professeur</option>
-                  <option value="admin">Administrateur</option>
-                  <option value="cashier">Caissier</option>
-                  <option value="chef">Chef de Département</option>
-                  {user?.role === 'super_admin' && <option value="super_admin">Super Admin</option>}
-                </select>
-                {(user?.role !== 'super_admin' && user?.role !== 'admin') && (
-                  <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" />
-                    Seul un administrateur peut modifier les rôles.
-                  </p>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Rôle</label>
+                  <select 
+                    value={editingUser.role}
+                    onChange={(e) => setEditingUser({...editingUser, role: e.target.value as any})}
+                    disabled={user?.role !== 'super_admin' && user?.role !== 'admin'}
+                    className={`w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${(user?.role !== 'super_admin' && user?.role !== 'admin') ? 'bg-slate-50 cursor-not-allowed text-slate-500' : ''}`}
+                  >
+                    <option value="student">Étudiant</option>
+                    <option value="professor">Professeur</option>
+                    <option value="admin">Administrateur</option>
+                    <option value="cashier">Caissier</option>
+                    <option value="chef">Chef de Département</option>
+                    {user?.role === 'super_admin' && <option value="super_admin">Super Admin</option>}
+                  </select>
+                  {(user?.role !== 'super_admin' && user?.role !== 'admin') && (
+                    <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      Seul un administrateur peut modifier les rôles.
+                    </p>
+                  )}
+                </div>
+
+                {(editingUser.role === 'student' || editingUser.role === 'professor' || editingUser.role === 'chef') && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Faculté / Département</label>
+                    <input 
+                      type="text" 
+                      value={editingUser.faculty || ''}
+                      onChange={(e) => setEditingUser({...editingUser, faculty: e.target.value})}
+                      placeholder="Ex: Sciences Informatiques"
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    />
+                  </div>
+                )}
+
+                {editingUser.role === 'student' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Promotion</label>
+                    <input 
+                      type="text" 
+                      value={editingUser.promotion || ''}
+                      onChange={(e) => setEditingUser({...editingUser, promotion: e.target.value})}
+                      placeholder="Ex: L3 Info"
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    />
+                  </div>
                 )}
               </div>
 
-              {(editingUser.role === 'student' || editingUser.role === 'professor' || editingUser.role === 'chef') && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Faculté / Département</label>
-                  <input 
-                    type="text" 
-                    value={editingUser.faculty || ''}
-                    onChange={(e) => setEditingUser({...editingUser, faculty: e.target.value})}
-                    placeholder="Ex: Sciences Informatiques"
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  />
-                </div>
-              )}
-
-              {editingUser.role === 'student' && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Promotion</label>
-                  <input 
-                    type="text" 
-                    value={editingUser.promotion || ''}
-                    onChange={(e) => setEditingUser({...editingUser, promotion: e.target.value})}
-                    placeholder="Ex: L3 Info"
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  />
-                </div>
-              )}
-
-              <div className="pt-4 flex gap-3">
+              <div className="mt-8 pt-4 border-t border-slate-100 flex gap-3">
                 <button 
                   type="button"
                   onClick={() => setEditingUser(null)}
@@ -485,7 +488,7 @@ export default function UsersManager() {
                   {isSaving ? (
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                   ) : (
-                    'Enregistrer'
+                    'Enregistrer les modifications'
                   )}
                 </button>
               </div>

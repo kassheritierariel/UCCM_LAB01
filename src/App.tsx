@@ -6,6 +6,7 @@ import Login from './Login';
 import StudentPortal from './StudentPortal';
 import ProfessorPortal from './ProfessorPortal';
 import LandingPage from './LandingPage';
+import WhatsAppButton from './components/WhatsAppButton';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
   const { user, loading } = useAuth();
@@ -84,6 +85,7 @@ export default function App() {
             } 
           />
         </Routes>
+        <WhatsAppButton />
       </Router>
     </AuthProvider>
   );

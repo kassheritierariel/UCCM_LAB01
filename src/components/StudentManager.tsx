@@ -637,9 +637,9 @@ export default function StudentManager() {
       )}
 
       {editingStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-auto animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10 rounded-t-2xl">
               <h3 className="text-lg font-bold text-slate-800">Modifier l'étudiant</h3>
               <button 
                 onClick={() => setEditingStudent(null)}
@@ -649,114 +649,130 @@ export default function StudentManager() {
               </button>
             </div>
             
-            <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Nom complet</label>
-                <input 
-                  type="text" 
-                  value={editingStudent.name} 
-                  disabled
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 cursor-not-allowed"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Matricule</label>
-                <div className="relative">
-                  <Hash className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input 
-                    type="text" 
-                    value={editingStudent.studentId || ''}
-                    onChange={(e) => setEditingStudent({...editingStudent, studentId: e.target.value})}
-                    placeholder="Ex: 2024-001"
-                    className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  />
+            <form onSubmit={handleSaveEdit} className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* Informations Personnelles */}
+                <div className="md:col-span-2">
+                  <h4 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 mb-4">Informations Personnelles</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Nom complet</label>
+                      <input 
+                        type="text" 
+                        value={editingStudent.name} 
+                        disabled
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 cursor-not-allowed"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Matricule</label>
+                      <div className="relative">
+                        <Hash className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input 
+                          type="text" 
+                          value={editingStudent.studentId || ''}
+                          onChange={(e) => setEditingStudent({...editingStudent, studentId: e.target.value})}
+                          placeholder="Ex: 2024-001"
+                          className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Téléphone</label>
+                      <div className="relative">
+                        <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input 
+                          type="tel" 
+                          value={editingStudent.phone || ''}
+                          onChange={(e) => setEditingStudent({...editingStudent, phone: e.target.value})}
+                          placeholder="Ex: +243 81..."
+                          className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Statut</label>
+                      <select 
+                        value={editingStudent.status || 'active'}
+                        onChange={(e) => setEditingStudent({...editingStudent, status: e.target.value as 'active' | 'inactive'})}
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                      >
+                        <option value="active">Actif</option>
+                        <option value="inactive">Inactif</option>
+                      </select>
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Adresse</label>
+                      <div className="relative">
+                        <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                        <textarea 
+                          value={editingStudent.address || ''}
+                          onChange={(e) => setEditingStudent({...editingStudent, address: e.target.value})}
+                          placeholder="Adresse complète"
+                          rows={2}
+                          className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Informations Académiques */}
+                <div className="md:col-span-2 mt-2">
+                  <h4 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 mb-4">Informations Académiques</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Campus</label>
+                      <input 
+                        type="text" 
+                        value={editingStudent.campus || ''}
+                        onChange={(e) => setEditingStudent({...editingStudent, campus: e.target.value})}
+                        placeholder="Ex: Campus Principal"
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Faculté</label>
+                      <input 
+                        type="text" 
+                        value={editingStudent.faculty || ''}
+                        onChange={(e) => setEditingStudent({...editingStudent, faculty: e.target.value})}
+                        placeholder="Ex: Sciences"
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Spécialité</label>
+                      <input 
+                        type="text" 
+                        value={editingStudent.specialty || ''}
+                        onChange={(e) => setEditingStudent({...editingStudent, specialty: e.target.value})}
+                        placeholder="Ex: Génie Logiciel"
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Promotion</label>
+                      <input 
+                        type="text" 
+                        value={editingStudent.promotion || ''}
+                        onChange={(e) => setEditingStudent({...editingStudent, promotion: e.target.value})}
+                        placeholder="Ex: L3 Info"
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Téléphone</label>
-                <div className="relative">
-                  <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input 
-                    type="tel" 
-                    value={editingStudent.phone || ''}
-                    onChange={(e) => setEditingStudent({...editingStudent, phone: e.target.value})}
-                    placeholder="Ex: +243 81..."
-                    className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Adresse</label>
-                <div className="relative">
-                  <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                  <textarea 
-                    value={editingStudent.address || ''}
-                    onChange={(e) => setEditingStudent({...editingStudent, address: e.target.value})}
-                    placeholder="Adresse complète"
-                    rows={2}
-                    className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Statut</label>
-                  <select 
-                    value={editingStudent.status || 'active'}
-                    onChange={(e) => setEditingStudent({...editingStudent, status: e.target.value as 'active' | 'inactive'})}
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  >
-                    <option value="active">Actif</option>
-                    <option value="inactive">Inactif</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Faculté</label>
-                  <input 
-                    type="text" 
-                    value={editingStudent.faculty || ''}
-                    onChange={(e) => setEditingStudent({...editingStudent, faculty: e.target.value})}
-                    placeholder="Ex: Sciences"
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Promotion</label>
-                  <input 
-                    type="text" 
-                    value={editingStudent.promotion || ''}
-                    onChange={(e) => setEditingStudent({...editingStudent, promotion: e.target.value})}
-                    placeholder="Ex: L3 Info"
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Campus</label>
-                  <input 
-                    type="text" 
-                    value={editingStudent.campus || ''}
-                    onChange={(e) => setEditingStudent({...editingStudent, campus: e.target.value})}
-                    placeholder="Ex: Campus Principal"
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Spécialité</label>
-                  <input 
-                    type="text" 
-                    value={editingStudent.specialty || ''}
-                    onChange={(e) => setEditingStudent({...editingStudent, specialty: e.target.value})}
-                    placeholder="Ex: Génie Logiciel"
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-4 flex gap-3">
+              <div className="mt-8 pt-4 border-t border-slate-100 flex gap-3">
                 <button 
                   type="button"
                   onClick={() => setEditingStudent(null)}
