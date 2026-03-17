@@ -3,7 +3,7 @@ import { Sparkles, BookOpen, FileText, Loader2, BrainCircuit, Zap } from 'lucide
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 
 export default function ProfessorAITools() {
-  const [activeTool, setActiveTool] = useState<'syllabus' | 'content'>('syllabus');
+  const [activeTool, setActiveTool] = useState<'syllabus' | 'content' | 'builder'>('syllabus');
   
   // Syllabus State
   const [courseName, setCourseName] = useState('');
@@ -17,6 +17,50 @@ export default function ProfessorAITools() {
   const [contentType, setContentType] = useState('quiz');
   const [contentResult, setContentResult] = useState('');
   const [isGeneratingContent, setIsGeneratingContent] = useState(false);
+
+  // Builder State
+  const [builderTopic, setBuilderTopic] = useState('');
+  const [builderLevel, setBuilderLevel] = useState('');
+  const [builderResult, setBuilderResult] = useState('');
+  const [isGeneratingBuilder, setIsGeneratingBuilder] = useState(false);
+
+  const handleGenerateBuilder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!builderTopic || !builderLevel) return;
+    
+    setIsGeneratingBuilder(true);
+    setBuilderResult('');
+    
+    try {
+      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY });
+      const prompt = `En tant que professeur universitaire expert, créez un cours complet sur le sujet suivant :
+Sujet : ${builderTopic}
+Niveau des étudiants : ${builderLevel}
+
+Le cours doit être structuré de manière pédagogique et inclure :
+1. Une introduction captivante
+2. 3 à 4 chapitres détaillés avec des explications claires et des exemples concrets
+3. Un résumé des points clés à retenir
+4. 3 questions de réflexion ou d'exercice pour les étudiants
+
+Formatez la réponse en Markdown professionnel, prêt à être distribué aux étudiants.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-pro-preview',
+        contents: prompt,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH }
+        }
+      });
+      
+      setBuilderResult(response.text || 'Erreur lors de la génération.');
+    } catch (error) {
+      console.error('Error generating course:', error);
+      setBuilderResult('Une erreur est survenue lors de la génération du cours.');
+    } finally {
+      setIsGeneratingBuilder(false);
+    }
+  };
 
   const handleGenerateSyllabus = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,6 +156,17 @@ Formatez la réponse en Markdown.`;
           >
             <Zap className="w-5 h-5" />
             Création Rapide de Contenu
+          </button>
+          <button
+            onClick={() => setActiveTool('builder')}
+            className={`flex-1 py-4 px-6 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+              activeTool === 'builder' 
+                ? 'bg-purple-50 text-purple-700 border-b-2 border-purple-600' 
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <Sparkles className="w-5 h-5" />
+            Créateur de Cours Complet
           </button>
         </div>
       </div>
@@ -251,6 +306,72 @@ Formatez la réponse en Markdown.`;
                   <div className="h-full flex flex-col items-center justify-center text-slate-400">
                     <Zap className="w-12 h-12 mb-3 opacity-20" />
                     <p>Le contenu généré apparaîtra ici.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTool === 'builder' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div>
+              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-purple-600" />
+                Créateur de Cours
+              </h3>
+              <form onSubmit={handleGenerateBuilder} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Sujet du cours</label>
+                  <input
+                    type="text"
+                    value={builderTopic}
+                    onChange={(e) => setBuilderTopic(e.target.value)}
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                    placeholder="ex: Introduction à la mécanique quantique"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Niveau des étudiants</label>
+                  <input
+                    type="text"
+                    value={builderLevel}
+                    onChange={(e) => setBuilderLevel(e.target.value)}
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                    placeholder="ex: L2 Physique"
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isGeneratingBuilder || !builderTopic || !builderLevel}
+                  className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isGeneratingBuilder ? (
+                    <><Loader2 className="w-5 h-5 animate-spin" /> Génération du cours...</>
+                  ) : (
+                    <><Sparkles className="w-5 h-5" /> Créer le cours complet</>
+                  )}
+                </button>
+                <p className="text-xs text-slate-500 text-center mt-2">
+                  Utilise le modèle Gemini Pro pour un contenu riche et structuré.
+                </p>
+              </form>
+            </div>
+            
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-6 flex flex-col h-[600px]">
+              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-slate-500" />
+                Résultat
+              </h3>
+              <div className="flex-1 overflow-y-auto bg-white border border-slate-200 rounded-lg p-4 text-sm text-slate-700 whitespace-pre-wrap">
+                {builderResult ? (
+                  builderResult
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                    <Sparkles className="w-12 h-12 mb-3 opacity-20" />
+                    <p>Le cours complet généré apparaîtra ici.</p>
                   </div>
                 )}
               </div>

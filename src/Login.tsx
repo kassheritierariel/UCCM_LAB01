@@ -130,7 +130,8 @@ export default function Login() {
           </div>
 
           <div className="text-slate-400 text-sm">
-            © {new Date().getFullYear()} Université Chrétienne Catholique. Tous droits réservés.
+            <p className="mb-1">© {new Date().getFullYear()} Université Chrétienne Catholique par <span className="text-white font-medium">KassHeritier</span>. Tous droits réservés.</p>
+            <p className="flex items-center gap-2">Contact : <a href="tel:+243818261297" className="text-blue-400 hover:text-blue-300 transition-colors">+243 818 261 297</a></p>
           </div>
         </div>
       </div>

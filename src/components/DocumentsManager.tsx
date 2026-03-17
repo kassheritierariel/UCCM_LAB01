@@ -13,7 +13,7 @@ import { useAuth } from '../AuthContext';
 interface Document {
   id: string;
   title: string;
-  type: 'tfc' | 'memoire' | 'rapport';
+  type: 'tfc' | 'memoire' | 'rapport' | 'autre';
   studentName: string;
   studentId: string;
   faculty: string;
@@ -28,6 +28,7 @@ const typeConfig = {
   tfc: { label: 'TFC', icon: FileText, color: 'text-blue-600', bg: 'bg-blue-50' },
   memoire: { label: 'Mémoire', icon: BookOpen, color: 'text-purple-600', bg: 'bg-purple-50' },
   rapport: { label: 'Rapport de Stage', icon: FileArchive, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  autre: { label: 'Autre Document', icon: FileText, color: 'text-slate-600', bg: 'bg-slate-50' },
 };
 
 const statusConfig = {
@@ -193,6 +194,7 @@ export default function DocumentsManager() {
               <option value="tfc">TFC</option>
               <option value="memoire">Mémoires</option>
               <option value="rapport">Rapports</option>
+              <option value="autre">Autres Documents</option>
             </select>
           </div>
           <div className="relative min-w-[160px] flex-1 sm:flex-none">

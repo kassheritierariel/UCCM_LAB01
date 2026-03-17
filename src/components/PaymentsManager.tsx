@@ -15,7 +15,7 @@ interface Payment {
   id: string;
   studentName: string;
   studentId: string;
-  type: 'tuition' | 'library' | 'exam' | 'other';
+  type: 'tuition' | 'library' | 'exam' | 'deposit' | 'other';
   amount: number;
   currency: string;
   status: 'pending' | 'completed' | 'failed';
@@ -29,6 +29,7 @@ const typeConfig = {
   tuition: { label: 'Frais Académiques', color: 'text-blue-600', bg: 'bg-blue-50' },
   library: { label: 'Frais Bibliothèque', color: 'text-emerald-600', bg: 'bg-emerald-50' },
   exam: { label: 'Frais d\'Examen', color: 'text-purple-600', bg: 'bg-purple-50' },
+  deposit: { label: 'Frais de Dépôt (TFC/Mémoire/Rapport/Autre)', color: 'text-amber-600', bg: 'bg-amber-50' },
   other: { label: 'Autres Frais', color: 'text-slate-600', bg: 'bg-slate-50' },
 };
 
@@ -321,6 +322,7 @@ export default function PaymentsManager() {
             <option value="tuition">Frais Académiques</option>
             <option value="library">Frais Bibliothèque</option>
             <option value="exam">Frais d'Examen</option>
+            <option value="deposit">Frais de Dépôt</option>
             <option value="other">Autres Frais</option>
           </select>
         </div>
@@ -507,6 +509,7 @@ export default function PaymentsManager() {
                   <option value="tuition">Frais Académiques (Minerval)</option>
                   <option value="library">Frais de Bibliothèque</option>
                   <option value="exam">Frais d'Examen</option>
+                  <option value="deposit">Frais de Dépôt (TFC/Mémoire/Rapport/Autre)</option>
                   <option value="other">Autres Frais</option>
                 </select>
               </div>

@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
-import { collection, query, onSnapshot, orderBy, doc, updateDoc, where, deleteField } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, doc, updateDoc, where, deleteField, getDoc } from 'firebase/firestore';
 import { 
-  Search, Filter, Edit2, GraduationCap, X, Mail, Calendar, ChevronUp, ChevronDown, Phone, MapPin, Hash
+  Search, Filter, Edit2, GraduationCap, X, Mail, Calendar, ChevronUp, ChevronDown, Phone, MapPin, Hash, Building2, BookOpen, QrCode, Printer, FileBadge, Download
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '../AuthContext';
+import { QRCodeSVG } from 'qrcode.react';
 
 interface Student {
   id: string;
@@ -16,11 +17,14 @@ interface Student {
   role: 'student';
   faculty?: string;
   promotion?: string;
+  campus?: string;
+  specialty?: string;
   tenantId?: string;
   createdAt: any;
   phone?: string;
   address?: string;
   studentId?: string;
+  status?: 'active' | 'inactive';
 }
 
 export default function StudentManager() {
@@ -30,11 +34,53 @@ export default function StudentManager() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterFaculty, setFilterFaculty] = useState('');
   const [filterPromotion, setFilterPromotion] = useState('');
+  const [filterCampus, setFilterCampus] = useState('');
+  const [filterSpecialty, setFilterSpecialty] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterDate, setFilterDate] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  
+  const [currentGroupPage, setCurrentGroupPage] = useState(1);
+  const groupsPerPage = 9;
+  
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  
+  const [generatingIdFor, setGeneratingIdFor] = useState<Student | null>(null);
+  const [institutionData, setInstitutionData] = useState<{name: string, logoUrl: string, address: string, primaryColor: string} | null>(null);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setCurrentGroupPage(1);
+  }, [selectedGroup, searchTerm, filterFaculty, filterPromotion, filterCampus, filterSpecialty, filterStatus, filterDate]);
+
+  useEffect(() => {
+    if (!user?.tenantId) return;
+    
+    const fetchInstitution = async () => {
+      try {
+        const docRef = doc(db, 'institutions', user.tenantId!);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setInstitutionData({
+            name: data.name || 'Université',
+            logoUrl: data.settings?.logoUrl || '',
+            address: data.settings?.address || 'Adresse non définie',
+            primaryColor: data.settings?.primaryColor || '#2563eb'
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching institution data:", error);
+      }
+    };
+    
+    fetchInstitution();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -62,6 +108,8 @@ export default function StudentManager() {
 
   const uniqueFaculties = Array.from(new Set(students.map(s => s.faculty).filter(Boolean))) as string[];
   const uniquePromotions = Array.from(new Set(students.map(s => s.promotion).filter(Boolean))) as string[];
+  const uniqueCampuses = Array.from(new Set(students.map(s => s.campus).filter(Boolean))) as string[];
+  const uniqueSpecialties = Array.from(new Set(students.map(s => s.specialty).filter(Boolean))) as string[];
 
   const filteredStudents = students.filter(s => {
     const searchLower = searchTerm.toLowerCase();
@@ -69,12 +117,32 @@ export default function StudentManager() {
            s.email?.toLowerCase().includes(searchLower) ||
            s.studentId?.toLowerCase().includes(searchLower) ||
            s.faculty?.toLowerCase().includes(searchLower) ||
-           s.promotion?.toLowerCase().includes(searchLower);
+           s.promotion?.toLowerCase().includes(searchLower) ||
+           s.campus?.toLowerCase().includes(searchLower) ||
+           s.specialty?.toLowerCase().includes(searchLower);
            
     const matchesFaculty = filterFaculty === '' || s.faculty === filterFaculty;
     const matchesPromotion = filterPromotion === '' || s.promotion === filterPromotion;
+    const matchesCampus = filterCampus === '' || s.campus === filterCampus;
+    const matchesSpecialty = filterSpecialty === '' || s.specialty === filterSpecialty;
     
-    return matchesSearch && matchesFaculty && matchesPromotion;
+    const studentStatus = s.status || 'active';
+    const matchesStatus = filterStatus === '' || studentStatus === filterStatus;
+    
+    let matchesDate = true;
+    if (filterDate && s.createdAt) {
+      try {
+        const dateObj = s.createdAt.toDate ? s.createdAt.toDate() : new Date(s.createdAt);
+        const studentDate = format(dateObj, 'yyyy-MM-dd');
+        matchesDate = studentDate === filterDate;
+      } catch (e) {
+        matchesDate = false;
+      }
+    } else if (filterDate && !s.createdAt) {
+      matchesDate = false;
+    }
+    
+    return matchesSearch && matchesFaculty && matchesPromotion && matchesCampus && matchesSpecialty && matchesStatus && matchesDate;
   });
 
   const handleSort = (key: string) => {
@@ -145,6 +213,12 @@ export default function StudentManager() {
       
       if (editingStudent.promotion) updateData.promotion = editingStudent.promotion;
       else updateData.promotion = deleteField();
+
+      if (editingStudent.campus) updateData.campus = editingStudent.campus;
+      else updateData.campus = deleteField();
+
+      if (editingStudent.specialty) updateData.specialty = editingStudent.specialty;
+      else updateData.specialty = deleteField();
       
       if (editingStudent.phone) updateData.phone = editingStudent.phone;
       else updateData.phone = deleteField();
@@ -154,6 +228,9 @@ export default function StudentManager() {
       
       if (editingStudent.studentId) updateData.studentId = editingStudent.studentId;
       else updateData.studentId = deleteField();
+      
+      if (editingStudent.status) updateData.status = editingStudent.status;
+      else updateData.status = 'active';
 
       await updateDoc(userRef, updateData);
       setEditingStudent(null);
@@ -168,6 +245,49 @@ export default function StudentManager() {
     return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
   };
 
+  const handleExportCSV = () => {
+    const headers = [
+      'Matricule',
+      'Nom',
+      'Email',
+      'Téléphone',
+      'Faculté',
+      'Promotion',
+      'Campus',
+      'Spécialité',
+      'Statut',
+      'Date d\'inscription'
+    ];
+
+    const csvContent = [
+      headers.join(','),
+      ...sortedStudents.map(s => {
+        const row = [
+          s.studentId || '',
+          `"${s.name.replace(/"/g, '""')}"`,
+          s.email || '',
+          s.phone || '',
+          `"${(s.faculty || '').replace(/"/g, '""')}"`,
+          `"${(s.promotion || '').replace(/"/g, '""')}"`,
+          `"${(s.campus || '').replace(/"/g, '""')}"`,
+          `"${(s.specialty || '').replace(/"/g, '""')}"`,
+          s.status === 'inactive' ? 'Inactif' : 'Actif',
+          s.createdAt ? (s.createdAt.toDate ? format(s.createdAt.toDate(), 'dd/MM/yyyy') : format(new Date(s.createdAt), 'dd/MM/yyyy')) : ''
+        ];
+        return row.join(',');
+      })
+    ].join('\n');
+
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `etudiants_export_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
@@ -175,14 +295,23 @@ export default function StudentManager() {
           <h2 className="text-2xl font-bold text-slate-800">Gestion des Étudiants</h2>
           <p className="text-sm text-slate-500 mt-1">Gérez les informations détaillées des étudiants.</p>
         </div>
-        <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-xl font-medium">
-          <GraduationCap className="w-5 h-5" />
-          <span>{students.length} étudiant{students.length !== 1 ? 's' : ''} au total</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl font-medium hover:bg-slate-50 transition-colors shadow-sm"
+          >
+            <Download className="w-5 h-5" />
+            <span>Exporter CSV</span>
+          </button>
+          <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-xl font-medium">
+            <GraduationCap className="w-5 h-5" />
+            <span>{students.length} étudiant{students.length !== 1 ? 's' : ''} au total</span>
+          </div>
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
+      <div className="flex flex-col gap-4">
+        <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
           <input 
             type="text" 
@@ -192,57 +321,144 @@ export default function StudentManager() {
             className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm"
           />
         </div>
-        <div className="flex gap-2 flex-wrap sm:flex-nowrap">
-          <select
-            value={filterFaculty}
-            onChange={(e) => setFilterFaculty(e.target.value)}
-            className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-slate-700 w-full sm:w-auto"
-          >
-            <option value="">Tous les départements</option>
-            {uniqueFaculties.map(f => (
-              <option key={f} value={f}>{f}</option>
-            ))}
-          </select>
-          <select
-            value={filterPromotion}
-            onChange={(e) => setFilterPromotion(e.target.value)}
-            className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-slate-700 w-full sm:w-auto"
-          >
-            <option value="">Toutes les promos</option>
-            {uniquePromotions.map(p => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+          <div className="relative w-full">
+            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="pl-9 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-slate-700 w-full"
+              title="Filtrer par date d'inscription"
+            />
+          </div>
+          <div className="relative w-full">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="pl-9 pr-8 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-slate-700 w-full appearance-none cursor-pointer"
+            >
+              <option value="">Tous les statuts</option>
+              <option value="active">Actif</option>
+              <option value="inactive">Inactif</option>
+            </select>
+          </div>
+          <div className="relative w-full">
+            <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <select
+              value={filterFaculty}
+              onChange={(e) => setFilterFaculty(e.target.value)}
+              className="pl-9 pr-8 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-slate-700 w-full appearance-none cursor-pointer"
+            >
+              <option value="">Toutes les facultés</option>
+              {uniqueFaculties.map(f => (
+                <option key={f} value={f}>{f}</option>
+              ))}
+            </select>
+          </div>
+          <div className="relative w-full">
+            <GraduationCap className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <select
+              value={filterPromotion}
+              onChange={(e) => setFilterPromotion(e.target.value)}
+              className="pl-9 pr-8 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-slate-700 w-full appearance-none cursor-pointer"
+            >
+              <option value="">Toutes les promos</option>
+              {uniquePromotions.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </div>
+          <div className="relative w-full">
+            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <select
+              value={filterCampus}
+              onChange={(e) => setFilterCampus(e.target.value)}
+              className="pl-9 pr-8 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-slate-700 w-full appearance-none cursor-pointer"
+            >
+              <option value="">Tous les campus</option>
+              {uniqueCampuses.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div className="relative w-full">
+            <BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <select
+              value={filterSpecialty}
+              onChange={(e) => setFilterSpecialty(e.target.value)}
+              className="pl-9 pr-8 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-slate-700 w-full appearance-none cursor-pointer"
+            >
+              <option value="">Toutes les spécialités</option>
+              {uniqueSpecialties.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
       {!selectedGroup ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {Object.entries(groupedStudents).map(([groupName, groupStudents]) => (
-            <div key={groupName} className="bg-white border border-slate-200 rounded-2xl p-6 hover:shadow-md transition-shadow group">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                  <GraduationCap className="w-6 h-6" />
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {(Object.entries(groupedStudents) as [string, Student[]][])
+              .slice((currentGroupPage - 1) * groupsPerPage, currentGroupPage * groupsPerPage)
+              .map(([groupName, groupStudents]) => (
+              <div key={groupName} className="bg-white border border-slate-200 rounded-2xl p-6 hover:shadow-md transition-shadow group flex flex-col">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                    <GraduationCap className="w-6 h-6" />
+                  </div>
+                  <div className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-bold">
+                    {groupStudents.length} étudiant{groupStudents.length !== 1 ? 's' : ''}
+                  </div>
                 </div>
-                <div className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-bold">
-                  {groupStudents.length} étudiant{groupStudents.length !== 1 ? 's' : ''}
-                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-2 line-clamp-2">{groupName}</h3>
+                <p className="text-sm text-slate-500 mb-6 flex-1">
+                  Année Académique en cours
+                </p>
+                <button 
+                  onClick={() => setSelectedGroup(groupName)}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 mt-auto"
+                >
+                  Voir la liste
+                </button>
               </div>
-              <h3 className="text-lg font-bold text-slate-800 mb-2 line-clamp-2">{groupName}</h3>
-              <p className="text-sm text-slate-500 mb-6">
-                Année Académique en cours
-              </p>
-              <button 
-                onClick={() => setSelectedGroup(groupName)}
-                className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
-              >
-                Voir la liste
-              </button>
-            </div>
-          ))}
-          {Object.keys(groupedStudents).length === 0 && !loading && (
-            <div className="col-span-full py-12 text-center text-slate-500 bg-white rounded-2xl border border-slate-200">
-              Aucun groupe trouvé pour ces critères.
+            ))}
+            {Object.keys(groupedStudents).length === 0 && !loading && (
+              <div className="col-span-full py-12 text-center text-slate-500 bg-white rounded-2xl border border-slate-200">
+                Aucun groupe trouvé pour ces critères.
+              </div>
+            )}
+          </div>
+          
+          {Object.keys(groupedStudents).length > 0 && (
+            <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+              <span className="text-sm text-slate-500">
+                Affichage de {Math.min((currentGroupPage - 1) * groupsPerPage + 1, Object.keys(groupedStudents).length)} à {Math.min(currentGroupPage * groupsPerPage, Object.keys(groupedStudents).length)} sur {Object.keys(groupedStudents).length} groupe(s)
+              </span>
+              {Math.ceil(Object.keys(groupedStudents).length / groupsPerPage) > 1 && (
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setCurrentGroupPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentGroupPage === 1}
+                    className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                  >
+                    Précédent
+                  </button>
+                  <span className="font-medium text-slate-700 text-sm px-2">
+                    Page {currentGroupPage} sur {Math.ceil(Object.keys(groupedStudents).length / groupsPerPage)}
+                  </span>
+                  <button 
+                    onClick={() => setCurrentGroupPage(prev => Math.min(prev + 1, Math.ceil(Object.keys(groupedStudents).length / groupsPerPage)))}
+                    disabled={currentGroupPage === Math.ceil(Object.keys(groupedStudents).length / groupsPerPage)}
+                    className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                  >
+                    Suivant
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -279,6 +495,7 @@ export default function StudentManager() {
                       </div>
                     </th>
                     <th className="px-6 py-4">Contact</th>
+                    <th className="px-6 py-4">Statut</th>
                     <th 
                       className="px-6 py-4 cursor-pointer hover:bg-slate-100 transition-colors group"
                       onClick={() => handleSort('createdAt')}
@@ -293,7 +510,7 @@ export default function StudentManager() {
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {loading ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-slate-400">
+                      <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
                         <div className="flex flex-col items-center justify-center">
                           <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
                           Chargement des étudiants...
@@ -302,7 +519,7 @@ export default function StudentManager() {
                     </tr>
                   ) : groupedStudents[selectedGroup]?.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
+                      <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
                         <div className="flex flex-col items-center justify-center">
                           <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
                             <Search className="w-8 h-8 text-slate-300" />
@@ -312,7 +529,9 @@ export default function StudentManager() {
                       </td>
                     </tr>
                   ) : (
-                    groupedStudents[selectedGroup]?.map((s) => (
+                    (groupedStudents[selectedGroup] || [])
+                      .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+                      .map((s) => (
                       <tr key={s.id} className="hover:bg-slate-50/50 transition-colors group">
                         <td className="px-6 py-4 font-mono text-xs text-slate-500">
                           {s.studentId || <span className="italic opacity-50">Non défini</span>}
@@ -350,14 +569,30 @@ export default function StudentManager() {
                             )}
                           </div>
                         </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            (!s.status || s.status === 'active') 
+                              ? 'bg-emerald-100 text-emerald-700' 
+                              : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            {(!s.status || s.status === 'active') ? 'Actif' : 'Inactif'}
+                          </span>
+                        </td>
                         <td className="px-6 py-4 text-slate-500 text-xs">
                           <div className="flex items-center gap-1.5">
                             <Calendar className="w-3.5 h-3.5" />
-                            {s.createdAt ? format(s.createdAt.toDate(), 'dd MMM yyyy', { locale: fr }) : 'N/A'}
+                            {s.createdAt ? (s.createdAt.toDate ? format(s.createdAt.toDate(), 'dd MMM yyyy', { locale: fr }) : format(new Date(s.createdAt), 'dd MMM yyyy', { locale: fr })) : 'N/A'}
                           </div>
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                              onClick={() => setGeneratingIdFor(s)}
+                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="Générer la carte d'étudiant"
+                            >
+                              <FileBadge className="w-4 h-4" />
+                            </button>
                             <button 
                               onClick={() => setEditingStudent(s)}
                               className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -374,7 +609,28 @@ export default function StudentManager() {
               </table>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 text-xs text-slate-500 flex justify-between items-center">
-              <span>Affichage de {groupedStudents[selectedGroup]?.length || 0} étudiant(s)</span>
+              <span>
+                Affichage de {Math.min((currentPage - 1) * itemsPerPage + 1, (groupedStudents[selectedGroup] || []).length)} à {Math.min(currentPage * itemsPerPage, (groupedStudents[selectedGroup] || []).length)} sur {(groupedStudents[selectedGroup] || []).length} étudiant(s)
+              </span>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Précédent
+                </button>
+                <span className="font-medium text-slate-700">
+                  Page {currentPage} sur {Math.max(1, Math.ceil((groupedStudents[selectedGroup] || []).length / itemsPerPage))}
+                </span>
+                <button 
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil((groupedStudents[selectedGroup] || []).length / itemsPerPage)))}
+                  disabled={currentPage >= Math.ceil((groupedStudents[selectedGroup] || []).length / itemsPerPage)}
+                  className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Suivant
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -405,7 +661,7 @@ export default function StudentManager() {
               </div>
               
               <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Matricule / ID</label>
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Matricule</label>
                 <div className="relative">
                   <Hash className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input 
@@ -446,7 +702,18 @@ export default function StudentManager() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Statut</label>
+                  <select 
+                    value={editingStudent.status || 'active'}
+                    onChange={(e) => setEditingStudent({...editingStudent, status: e.target.value as 'active' | 'inactive'})}
+                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                  >
+                    <option value="active">Actif</option>
+                    <option value="inactive">Inactif</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Faculté</label>
                   <input 
@@ -464,6 +731,26 @@ export default function StudentManager() {
                     value={editingStudent.promotion || ''}
                     onChange={(e) => setEditingStudent({...editingStudent, promotion: e.target.value})}
                     placeholder="Ex: L3 Info"
+                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Campus</label>
+                  <input 
+                    type="text" 
+                    value={editingStudent.campus || ''}
+                    onChange={(e) => setEditingStudent({...editingStudent, campus: e.target.value})}
+                    placeholder="Ex: Campus Principal"
+                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Spécialité</label>
+                  <input 
+                    type="text" 
+                    value={editingStudent.specialty || ''}
+                    onChange={(e) => setEditingStudent({...editingStudent, specialty: e.target.value})}
+                    placeholder="Ex: Génie Logiciel"
                     className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                   />
                 </div>
@@ -490,6 +777,137 @@ export default function StudentManager() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ID Card Generation Modal */}
+      {generatingIdFor && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center">
+                  <FileBadge className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800">Carte d'Étudiant</h3>
+                  <p className="text-xs text-slate-500">Aperçu avant impression</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setGeneratingIdFor(null)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 flex flex-col items-center justify-center bg-slate-100/50">
+              {/* ID Card Container */}
+              <div 
+                id="id-card-print-area"
+                className="w-[340px] h-[540px] bg-white rounded-xl shadow-lg relative overflow-hidden border border-slate-200 flex flex-col"
+                style={{
+                  backgroundImage: `linear-gradient(135deg, ${institutionData?.primaryColor || '#2563eb'}08 0%, transparent 100%)`
+                }}
+              >
+                {/* Header */}
+                <div 
+                  className="h-24 px-4 flex items-center justify-between relative"
+                  style={{ backgroundColor: institutionData?.primaryColor || '#2563eb' }}
+                >
+                  <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+                  <div className="relative z-10 flex items-center gap-3 w-full">
+                    {institutionData?.logoUrl ? (
+                      <img src={institutionData.logoUrl} alt="Logo" className="w-12 h-12 rounded-lg object-contain bg-white p-1" />
+                    ) : (
+                      <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
+                        <Building2 className="w-6 h-6" style={{ color: institutionData?.primaryColor || '#2563eb' }} />
+                      </div>
+                    )}
+                    <div className="text-white flex-1">
+                      <h2 className="font-bold text-sm leading-tight uppercase tracking-wide">{institutionData?.name || 'Université'}</h2>
+                      <p className="text-[10px] opacity-90 mt-0.5 leading-tight">{institutionData?.address || 'Adresse de l\'institution'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 p-5 flex flex-col items-center relative">
+                  {/* Photo Placeholder */}
+                  <div className="w-32 h-32 rounded-2xl bg-slate-100 border-4 border-white shadow-md -mt-16 mb-4 flex items-center justify-center overflow-hidden relative z-10">
+                    <div className="text-4xl font-bold text-slate-300">
+                      {getInitials(generatingIdFor.name)}
+                    </div>
+                  </div>
+
+                  <div className="text-center w-full mb-4">
+                    <h1 className="text-xl font-bold text-slate-800 uppercase tracking-tight">{generatingIdFor.name}</h1>
+                    <p className="text-sm font-medium text-slate-500 mt-1">ÉTUDIANT(E)</p>
+                  </div>
+
+                  <div className="w-full space-y-2.5 mb-6">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Matricule</span>
+                      <span className="text-xs font-bold text-slate-800 font-mono">{generatingIdFor.studentId || 'N/A'}</span>
+                    </div>
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Faculté</span>
+                      <span className="text-xs font-semibold text-slate-700">{generatingIdFor.faculty || 'N/A'}</span>
+                    </div>
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Promotion</span>
+                      <span className="text-xs font-semibold text-slate-700">{generatingIdFor.promotion || 'N/A'}</span>
+                    </div>
+                    {(generatingIdFor.campus || generatingIdFor.specialty) && (
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Campus / Spéc.</span>
+                        <span className="text-xs font-semibold text-slate-700 truncate max-w-[150px] text-right">
+                          {[generatingIdFor.campus, generatingIdFor.specialty].filter(Boolean).join(' - ')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* QR Code */}
+                  <div className="mt-auto flex flex-col items-center">
+                    <div className="p-1.5 bg-white rounded-lg shadow-sm border border-slate-100">
+                      <QRCodeSVG 
+                        value={`student:${generatingIdFor.id}:${generatingIdFor.studentId}`} 
+                        size={64} 
+                        level="M"
+                        fgColor={institutionData?.primaryColor || '#2563eb'}
+                      />
+                    </div>
+                    <p className="text-[8px] text-slate-400 mt-2 font-mono uppercase tracking-widest">
+                      ID: {generatingIdFor.id.substring(0, 8)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div 
+                  className="h-3 w-full"
+                  style={{ backgroundColor: institutionData?.primaryColor || '#2563eb' }}
+                ></div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex gap-3 shrink-0">
+              <button 
+                onClick={() => setGeneratingIdFor(null)}
+                className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
+              >
+                Fermer
+              </button>
+              <button 
+                onClick={() => window.print()}
+                className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+              >
+                <Printer className="w-4 h-4" />
+                Imprimer
+              </button>
+            </div>
           </div>
         </div>
       )}

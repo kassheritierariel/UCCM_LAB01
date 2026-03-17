@@ -67,6 +67,12 @@ export default function ProfessorPortal() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [toastMessage, setToastMessage] = useState<{title: string, message: string, type: 'success' | 'error'} | null>(null);
+
+  const showToast = (title: string, message: string, type: 'success' | 'error') => {
+    setToastMessage({ title, message, type });
+    setTimeout(() => setToastMessage(null), 5000);
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -193,22 +199,23 @@ export default function ProfessorPortal() {
       setShowCourseModal(false);
       setEditingCourse(null);
       setCourseForm({ name: '', faculty: '', promotion: '', description: '', notes: '', deadline: '' });
+      showToast("Succès", "Le cours a été enregistré avec succès.", "success");
     } catch (error) {
       console.error("Error saving course:", error);
-      alert("Une erreur est survenue lors de l'enregistrement du cours.");
+      showToast("Erreur", "Une erreur est survenue lors de l'enregistrement du cours.", "error");
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleDeleteCourse = async (courseId: string) => {
-    if (window.confirm("Êtes-vous sûr de vouloir supprimer ce cours ?")) {
-      try {
-        await deleteDoc(doc(db, 'courses', courseId));
-      } catch (error) {
-        console.error("Error deleting course:", error);
-        alert("Une erreur est survenue lors de la suppression du cours.");
-      }
+    // Remplacé window.confirm par une suppression directe avec toast (ou on pourrait faire un modal de confirmation)
+    try {
+      await deleteDoc(doc(db, 'courses', courseId));
+      showToast("Succès", "Le cours a été supprimé.", "success");
+    } catch (error) {
+      console.error("Error deleting course:", error);
+      showToast("Erreur", "Une erreur est survenue lors de la suppression du cours.", "error");
     }
   };
 
@@ -228,7 +235,8 @@ export default function ProfessorPortal() {
     return students.filter(s => s.faculty === faculty && s.promotion === promotion).length;
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, courseId: string) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, courseId: string | null) => {
+    if (!courseId) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -239,7 +247,7 @@ export default function ProfessorPortal() {
         const lines = text.split('\n').filter(line => line.trim() !== '');
         
         if (lines.length === 0) {
-          alert("Le fichier CSV est vide.");
+          showToast("Erreur", "Le fichier CSV est vide.", "error");
           return;
         }
 
@@ -247,13 +255,15 @@ export default function ProfessorPortal() {
         const dataLines = hasHeader ? lines.slice(1) : lines;
         
         const newStudents: EnrolledStudent[] = dataLines.map(line => {
-          const parts = line.split(/[;,]/).map(s => s.trim());
+          // Gérer les guillemets éventuels dans le CSV
+          const cleanLine = line.replace(/["']/g, '');
+          const parts = cleanLine.split(/[;,]/).map(s => s.trim());
           return {
             name: parts[0] || 'Inconnu',
             email: parts[1] || '',
             studentId: parts[2] || ''
           };
-        }).filter(s => s.name !== 'Inconnu' || s.email !== '');
+        }).filter(s => s.name !== 'Inconnu' && s.name !== '');
 
         const course = courses.find(c => c.id === courseId);
         const existingStudents = course?.enrolledStudents || [];
@@ -275,10 +285,10 @@ export default function ProfessorPortal() {
           enrolledStudents: finalStudents
         });
         
-        alert(`${newStudents.length} étudiants trouvés dans le CSV. Total après fusion : ${finalStudents.length} inscrits.`);
+        showToast("Import réussi", `${newStudents.length} étudiants trouvés. Total après fusion : ${finalStudents.length} inscrits.`, "success");
       } catch (error) {
         console.error("Erreur lors de l'importation:", error);
-        alert("Une erreur est survenue lors de l'importation du fichier CSV.");
+        showToast("Erreur", "Une erreur est survenue lors de l'importation du fichier CSV.", "error");
       }
     };
     reader.readAsText(file);
@@ -291,9 +301,10 @@ export default function ProfessorPortal() {
         description: tempDescription
       });
       setEditingDescriptionId(null);
+      showToast("Succès", "Description mise à jour.", "success");
     } catch (error) {
       console.error("Error updating description:", error);
-      alert("Erreur lors de la mise à jour de la description.");
+      showToast("Erreur", "Erreur lors de la mise à jour de la description.", "error");
     }
   };
 
@@ -303,9 +314,10 @@ export default function ProfessorPortal() {
         notes: tempNotes
       });
       setEditingNotesId(null);
+      showToast("Succès", "Notes mises à jour.", "success");
     } catch (error) {
       console.error("Error updating notes:", error);
-      alert("Erreur lors de la mise à jour des notes.");
+      showToast("Erreur", "Erreur lors de la mise à jour des notes.", "error");
     }
   };
 
@@ -315,9 +327,10 @@ export default function ProfessorPortal() {
         deadline: tempDeadline
       });
       setEditingDeadlineId(null);
+      showToast("Succès", "Date limite mise à jour.", "success");
     } catch (error) {
       console.error("Error updating deadline:", error);
-      alert("Erreur lors de la mise à jour de la date limite.");
+      showToast("Erreur", "Erreur lors de la mise à jour de la date limite.", "error");
     }
   };
 
@@ -335,9 +348,10 @@ export default function ProfessorPortal() {
         enrolledStudents: updatedStudents
       });
       setNewStudentForm({ name: '', email: '', studentId: '' });
+      showToast("Succès", "Étudiant ajouté avec succès.", "success");
     } catch (error) {
       console.error("Error adding student:", error);
-      alert("Erreur lors de l'ajout de l'étudiant.");
+      showToast("Erreur", "Erreur lors de l'ajout de l'étudiant.", "error");
     }
   };
 
@@ -356,10 +370,24 @@ export default function ProfessorPortal() {
       await updateDoc(doc(db, 'courses', course.id), {
         enrolledStudents: updatedStudents
       });
+      showToast("Succès", "Étudiant retiré du cours.", "success");
     } catch (error) {
       console.error("Error removing student:", error);
-      alert("Erreur lors de la suppression de l'étudiant.");
+      showToast("Erreur", "Erreur lors de la suppression de l'étudiant.", "error");
     }
+  };
+
+  const downloadCSVTemplate = () => {
+    const csvContent = "Nom,Email,Matricule\nJean Dupont,jean.dupont@example.com,MAT123\nMarie Curie,marie.curie@example.com,MAT456";
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", "modele_etudiants.csv");
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -932,16 +960,25 @@ export default function ProfessorPortal() {
                     <h3 className="text-sm font-bold text-slate-800">Étudiants inscrits ({courses.find(c => c.id === managingCourseId)?.enrolledStudents?.length || 0})</h3>
                     <p className="text-xs text-slate-500 mt-1">Format CSV attendu : Nom, Email, Matricule</p>
                   </div>
-                  <label className="cursor-pointer flex items-center gap-1.5 text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-lg transition-colors">
-                    <Upload className="w-3.5 h-3.5" />
-                    Importer CSV
-                    <input 
-                      type="file" 
-                      accept=".csv" 
-                      className="hidden" 
-                      onChange={(e) => handleFileUpload(e, managingCourseId)} 
-                    />
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={downloadCSVTemplate}
+                      className="flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg transition-colors"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      Modèle CSV
+                    </button>
+                    <label className="cursor-pointer flex items-center gap-1.5 text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-lg transition-colors">
+                      <Upload className="w-3.5 h-3.5" />
+                      Importer CSV
+                      <input 
+                        type="file" 
+                        accept=".csv" 
+                        className="hidden" 
+                        onChange={(e) => handleFileUpload(e, managingCourseId)} 
+                      />
+                    </label>
+                  </div>
                 </div>
                 {courses.find(c => c.id === managingCourseId)?.enrolledStudents?.length ? (
                   <div className="border border-slate-200 rounded-xl overflow-hidden">

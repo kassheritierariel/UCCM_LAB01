@@ -1,1 +1,22 @@
 @import "tailwindcss";
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #id-card-print-area, #id-card-print-area * {
+    visibility: visible;
+  }
+  #id-card-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  @page {
+    margin: 0;
+    size: auto;
+  }
+}

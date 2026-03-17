@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, query, onSnapshot, orderBy, doc, updateDoc, deleteDoc, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, doc, updateDoc, deleteDoc, where, getDoc } from 'firebase/firestore';
 import { 
   Search, Filter, Edit2, Trash2, ShieldCheck, GraduationCap, 
   Briefcase, Award, Calculator, X, Plus, AlertCircle, MoreHorizontal,
-  Mail, Calendar, ChevronUp, ChevronDown
+  Mail, Calendar, ChevronUp, ChevronDown, FileBadge, Printer, Building2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '../AuthContext';
+import { QRCodeSVG } from 'qrcode.react';
 
 interface User {
   id: string;
@@ -18,6 +19,7 @@ interface User {
   role: 'student' | 'professor' | 'admin' | 'cashier' | 'chef' | 'super_admin';
   faculty?: string;
   promotion?: string;
+  matricule?: string;
   tenantId?: string;
   createdAt: any;
 }
@@ -42,6 +44,33 @@ export default function UsersManager() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [isAddInfoOpen, setIsAddInfoOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  
+  const [generatingIdFor, setGeneratingIdFor] = useState<User | null>(null);
+  const [institutionData, setInstitutionData] = useState<{name: string, logoUrl: string, address: string, primaryColor: string} | null>(null);
+
+  useEffect(() => {
+    if (!user?.tenantId || user.tenantId === 'SYSTEM') return;
+    
+    const fetchInstitution = async () => {
+      try {
+        const docRef = doc(db, 'institutions', user.tenantId!);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setInstitutionData({
+            name: data.name || 'Université',
+            logoUrl: data.settings?.logoUrl || '',
+            address: data.settings?.address || 'Adresse non définie',
+            primaryColor: data.settings?.primaryColor || '#2563eb'
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching institution data:", error);
+      }
+    };
+    
+    fetchInstitution();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -71,6 +100,7 @@ export default function UsersManager() {
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch = u.name?.toLowerCase().includes(searchLower) || 
                           u.email?.toLowerCase().includes(searchLower) ||
+                          u.matricule?.toLowerCase().includes(searchLower) ||
                           roleConfig[u.role]?.label.toLowerCase().includes(searchLower);
     const matchesRole = roleFilter === 'all' || u.role === roleFilter;
     return matchesSearch && matchesRole;
@@ -178,7 +208,7 @@ export default function UsersManager() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
           <input 
             type="text" 
-            placeholder="Rechercher par nom, email ou rôle..." 
+            placeholder="Rechercher par nom, email, rôle ou matricule..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm"
@@ -309,11 +339,20 @@ export default function UsersManager() {
                       <td className="px-6 py-4 text-slate-500 text-xs">
                         <div className="flex items-center gap-1.5">
                           <Calendar className="w-3.5 h-3.5" />
-                          {u.createdAt ? format(u.createdAt.toDate(), 'dd MMM yyyy', { locale: fr }) : 'N/A'}
+                          {u.createdAt ? (u.createdAt.toDate ? format(u.createdAt.toDate(), 'dd MMM yyyy', { locale: fr }) : format(new Date(u.createdAt), 'dd MMM yyyy', { locale: fr })) : 'N/A'}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {!(user?.role === 'admin' && u.role === 'super_admin') && (
+                            <button 
+                              onClick={() => setGeneratingIdFor(u)}
+                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="Générer la carte d'identité"
+                            >
+                              <FileBadge className="w-4 h-4" />
+                            </button>
+                          )}
                           {!(user?.role === 'admin' && u.role === 'super_admin') && (
                             <button 
                               onClick={() => setEditingUser(u)}
@@ -474,6 +513,140 @@ export default function UsersManager() {
             >
               J'ai compris
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ID Card Generation Modal */}
+      {generatingIdFor && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center">
+                  <FileBadge className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800">Carte d'Identité</h3>
+                  <p className="text-xs text-slate-500">Aperçu avant impression</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setGeneratingIdFor(null)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 flex flex-col items-center justify-center bg-slate-100/50">
+              {/* ID Card Container */}
+              <div 
+                id="id-card-print-area"
+                className="w-[340px] h-[540px] bg-white rounded-xl shadow-lg relative overflow-hidden border border-slate-200 flex flex-col"
+                style={{
+                  backgroundImage: `linear-gradient(135deg, ${institutionData?.primaryColor || '#2563eb'}08 0%, transparent 100%)`
+                }}
+              >
+                {/* Header */}
+                <div 
+                  className="h-24 px-4 flex items-center justify-between relative"
+                  style={{ backgroundColor: institutionData?.primaryColor || '#2563eb' }}
+                >
+                  <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+                  <div className="relative z-10 flex items-center gap-3 w-full">
+                    {institutionData?.logoUrl ? (
+                      <img src={institutionData.logoUrl} alt="Logo" className="w-12 h-12 rounded-lg object-contain bg-white p-1" />
+                    ) : (
+                      <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
+                        <Building2 className="w-6 h-6" style={{ color: institutionData?.primaryColor || '#2563eb' }} />
+                      </div>
+                    )}
+                    <div className="text-white flex-1">
+                      <h2 className="font-bold text-sm leading-tight uppercase tracking-wide">{institutionData?.name || 'Université'}</h2>
+                      <p className="text-[10px] opacity-90 mt-0.5 leading-tight">{institutionData?.address || 'Adresse de l\'institution'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 p-5 flex flex-col items-center relative">
+                  {/* Photo Placeholder */}
+                  <div className="w-32 h-32 rounded-2xl bg-slate-100 border-4 border-white shadow-md -mt-16 mb-4 flex items-center justify-center overflow-hidden relative z-10">
+                    <div className="text-4xl font-bold text-slate-300">
+                      {getInitials(generatingIdFor.name)}
+                    </div>
+                  </div>
+
+                  <div className="text-center w-full mb-4">
+                    <h1 className="text-xl font-bold text-slate-800 uppercase tracking-tight">{generatingIdFor.name}</h1>
+                    <p className="text-sm font-medium text-slate-500 mt-1 uppercase">
+                      {roleConfig[generatingIdFor.role]?.label || 'Utilisateur'}
+                    </p>
+                  </div>
+
+                  <div className="w-full space-y-2.5 mb-6">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ID</span>
+                      <span className="text-xs font-bold text-slate-800 font-mono">{generatingIdFor.matricule || generatingIdFor.id.substring(0, 8)}</span>
+                    </div>
+                    {generatingIdFor.faculty && (
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Faculté / Dép.</span>
+                        <span className="text-xs font-semibold text-slate-700">{generatingIdFor.faculty}</span>
+                      </div>
+                    )}
+                    {generatingIdFor.promotion && (
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Promotion</span>
+                        <span className="text-xs font-semibold text-slate-700">{generatingIdFor.promotion}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Email</span>
+                      <span className="text-[10px] font-semibold text-slate-700 truncate max-w-[150px]">{generatingIdFor.email}</span>
+                    </div>
+                  </div>
+
+                  {/* QR Code */}
+                  <div className="mt-auto flex flex-col items-center">
+                    <div className="p-1.5 bg-white rounded-lg shadow-sm border border-slate-100">
+                      <QRCodeSVG 
+                        value={`user:${generatingIdFor.id}:${generatingIdFor.role}`} 
+                        size={64} 
+                        level="M"
+                        fgColor={institutionData?.primaryColor || '#2563eb'}
+                      />
+                    </div>
+                    <p className="text-[8px] text-slate-400 mt-2 font-mono uppercase tracking-widest">
+                      UID: {generatingIdFor.id.substring(0, 8)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div 
+                  className="h-3 w-full"
+                  style={{ backgroundColor: institutionData?.primaryColor || '#2563eb' }}
+                ></div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex gap-3 shrink-0">
+              <button 
+                onClick={() => setGeneratingIdFor(null)}
+                className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
+              >
+                Fermer
+              </button>
+              <button 
+                onClick={() => window.print()}
+                className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+              >
+                <Printer className="w-4 h-4" />
+                Imprimer
+              </button>
+            </div>
           </div>
         </div>
       )}
