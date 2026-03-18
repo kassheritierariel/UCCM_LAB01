@@ -7,6 +7,7 @@ import StudentPortal from './StudentPortal';
 import ProfessorPortal from './ProfessorPortal';
 import LandingPage from './LandingPage';
 import WhatsAppButton from './components/WhatsAppButton';
+import OfflineIndicator from './components/OfflineIndicator';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
   const { user, loading } = useAuth();
@@ -56,6 +57,7 @@ export default function App() {
   return (
     <AuthProvider>
       <Router>
+        <OfflineIndicator />
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
