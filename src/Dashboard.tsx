@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import Logo from './components/Logo';
 import UsersManager from './components/UsersManager';
 import StudentManager from './components/StudentManager';
 import DocumentsManager from './components/DocumentsManager';
@@ -266,9 +267,7 @@ export default function Dashboard() {
             {tenantSettings?.settings?.logoUrl ? (
               <img src={tenantSettings.settings.logoUrl} alt="Logo" className="h-8 w-auto rounded object-contain bg-white/10 p-1" />
             ) : (
-              <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
-                <BookOpen className="h-5 w-5 text-white" />
-              </div>
+              <Logo className="w-8 h-8" withText={false} />
             )}
             <span className="text-lg font-extrabold text-white tracking-tight truncate">
               {tenantSettings?.name || user?.tenantName || 'UCCM'}

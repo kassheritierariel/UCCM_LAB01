@@ -3,7 +3,7 @@ import { db } from '../firebase';
 import { collection, query, onSnapshot, orderBy, doc, updateDoc, addDoc, serverTimestamp, getDocs, where } from 'firebase/firestore';
 import { 
   Building2, Search, Filter, Plus, Edit2, ShieldCheck, 
-  Activity, Users, CreditCard, X, CheckCircle, XCircle
+  Activity, Users, CreditCard, X, CheckCircle, XCircle, Download
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -41,6 +41,7 @@ export default function InstitutionsManager() {
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [userCounts, setUserCounts] = useState<Record<string, number>>({});
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -66,6 +67,21 @@ export default function InstitutionsManager() {
       })) as Institution[];
       setInstitutions(data);
       setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, 'users'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const counts: Record<string, number> = {};
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.tenantId) {
+          counts[data.tenantId] = (counts[data.tenantId] || 0) + 1;
+        }
+      });
+      setUserCounts(counts);
     });
     return () => unsubscribe();
   }, []);
@@ -162,6 +178,46 @@ export default function InstitutionsManager() {
     setFormData({ name: '', domain: '', plan: 'pro', status: 'active', contactEmail: '', address: '', phone: '', logoUrl: '' });
   };
 
+  const handleExportCSV = () => {
+    const headers = [
+      'ID',
+      'Nom',
+      'Domaine',
+      'Plan SaaS',
+      'Statut',
+      'Utilisateurs Actifs',
+      'Email Contact',
+      'Date de création'
+    ];
+
+    const csvContent = [
+      headers.join(','),
+      ...filteredInstitutions.map(inst => {
+        const row = [
+          inst.id,
+          `"${(inst.name || '').replace(/"/g, '""')}"`,
+          inst.domain || '',
+          planConfig[inst.plan]?.label || inst.plan,
+          statusConfig[inst.status]?.label || inst.status,
+          userCounts[inst.id] || 0,
+          inst.contactEmail || '',
+          inst.createdAt ? (inst.createdAt.toDate ? format(inst.createdAt.toDate(), 'dd/MM/yyyy') : format(new Date(inst.createdAt), 'dd/MM/yyyy')) : ''
+        ];
+        return row.join(',');
+      })
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `institutions_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Header & Stats */}
@@ -171,13 +227,22 @@ export default function InstitutionsManager() {
             <h2 className="text-2xl font-bold text-slate-800">Gestion des Institutions (SaaS)</h2>
             <p className="text-sm text-slate-500 mt-1">Gérez les universités clientes de la plateforme.</p>
           </div>
-          <button 
-            onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-xl font-medium transition-all shadow-sm hover:shadow-md"
-          >
-            <Plus className="w-5 h-5" />
-            Nouvelle Institution
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleExportCSV}
+              className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-medium hover:bg-slate-50 transition-colors shadow-sm"
+            >
+              <Download className="w-5 h-5" />
+              <span className="hidden sm:inline">Exporter CSV</span>
+            </button>
+            <button 
+              onClick={() => setIsAddModalOpen(true)}
+              className="flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-xl font-medium transition-all shadow-sm hover:shadow-md"
+            >
+              <Plus className="w-5 h-5" />
+              Nouvelle Institution
+            </button>
+          </div>
         </div>
         <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-6 rounded-2xl shadow-sm text-white flex items-center justify-between">
           <div>
@@ -211,6 +276,7 @@ export default function InstitutionsManager() {
                 <th className="px-6 py-4">Institution</th>
                 <th className="px-6 py-4">Plan SaaS</th>
                 <th className="px-6 py-4">Statut</th>
+                <th className="px-6 py-4">Utilisateurs</th>
                 <th className="px-6 py-4">Création</th>
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
@@ -218,7 +284,7 @@ export default function InstitutionsManager() {
             <tbody className="divide-y divide-slate-100 text-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-slate-400">
+                  <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center">
                       <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
                       Chargement des institutions...
@@ -227,7 +293,7 @@ export default function InstitutionsManager() {
                 </tr>
               ) : filteredInstitutions.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center">
                       <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
                         <Building2 className="w-8 h-8 text-slate-300" />
@@ -241,6 +307,7 @@ export default function InstitutionsManager() {
                   const planInfo = planConfig[inst.plan] || planConfig.basic;
                   const statusInfo = statusConfig[inst.status] || statusConfig.active;
                   const StatusIcon = statusInfo.icon;
+                  const activeUsersCount = userCounts[inst.id] || 0;
                   
                   return (
                     <tr key={inst.id} className="hover:bg-slate-50/50 transition-colors group">
@@ -265,6 +332,12 @@ export default function InstitutionsManager() {
                           <StatusIcon className="w-3.5 h-3.5" />
                           {statusInfo.label}
                         </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-4 h-4 text-slate-400" />
+                          <span className="font-medium text-slate-700">{activeUsersCount}</span>
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-slate-500 text-xs">
                         {inst.createdAt ? format(inst.createdAt.toDate(), 'dd MMM yyyy', { locale: fr }) : 'N/A'}

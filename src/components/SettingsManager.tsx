@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { useAuth } from '../AuthContext';
-import { Settings, CreditCard, Smartphone, Save, AlertCircle, CheckCircle2, Building2, Palette, MapPin, Phone, Image as ImageIcon } from 'lucide-react';
+import { Settings, CreditCard, Smartphone, Save, AlertCircle, CheckCircle2, Building2, Palette, MapPin, Phone, Image as ImageIcon, Loader2, Wand2 } from 'lucide-react';
+import { GoogleGenAI } from '@google/genai';
 
 export default function SettingsManager() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generatingLogo, setGeneratingLogo] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   
   const [institutionName, setInstitutionName] = useState('');
@@ -79,6 +81,58 @@ export default function SettingsManager() {
       setMessage({ type: 'error', text: 'Erreur lors de la sauvegarde des paramètres.' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleGenerateLogo = async () => {
+    setGeneratingLogo(true);
+    setMessage(null);
+    try {
+      if (typeof window !== 'undefined' && window.aistudio) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        if (!hasKey) {
+          await window.aistudio.openSelectKey();
+        }
+      }
+      
+      const apiKey = (typeof process !== 'undefined' && process.env?.API_KEY) || import.meta.env.VITE_GEMINI_API_KEY;
+      const ai = new GoogleGenAI({ apiKey });
+      
+      const res = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-image-preview',
+        contents: { parts: [{ text: `Un logo simple, professionnel et minimaliste pour une institution éducative nommée "${institutionName || 'Université'}". Style vectoriel, design plat, couleurs bleu et émeraude, fond blanc, sans aucun texte.` }] },
+        config: {
+          imageConfig: {
+            aspectRatio: "1:1",
+            imageSize: "512px"
+          }
+        }
+      });
+
+      let foundImage = false;
+      for (const part of res.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          const imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+          setSettings(prev => ({ ...prev, logoUrl: imageUrl }));
+          setMessage({ type: 'success', text: 'Logo généré avec succès ! N\'oubliez pas d\'enregistrer.' });
+          foundImage = true;
+          break;
+        }
+      }
+      
+      if (!foundImage) {
+        setMessage({ type: 'error', text: "Aucune image n'a été générée." });
+      }
+    } catch (err: any) {
+      console.error(err);
+      if (err.message?.includes('Requested entity was not found')) {
+        setMessage({ type: 'error', text: "Veuillez sélectionner une clé API valide et réessayer." });
+        if (window.aistudio) window.aistudio.openSelectKey();
+      } else {
+        setMessage({ type: 'error', text: err.message || "Erreur lors de la génération du logo." });
+      }
+    } finally {
+      setGeneratingLogo(false);
     }
   };
 
@@ -160,17 +214,48 @@ export default function SettingsManager() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
-                    <ImageIcon className="w-4 h-4 text-slate-400" />
-                    URL du Logo
+                  <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <ImageIcon className="w-4 h-4 text-slate-400" />
+                      Logo de l'Institution
+                    </span>
+                    <button
+                      onClick={handleGenerateLogo}
+                      disabled={generatingLogo}
+                      className="text-xs font-medium text-indigo-600 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {generatingLogo ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                      Générer avec l'IA
+                    </button>
                   </label>
-                  <input 
-                    type="url" 
-                    value={settings.logoUrl || ''}
-                    onChange={(e) => setSettings({...settings, logoUrl: e.target.value})}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    placeholder="https://..."
-                  />
+                  <div className="flex items-start gap-4 mt-3">
+                    <div 
+                      onClick={handleGenerateLogo}
+                      className="w-16 h-16 rounded-xl border-2 border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden cursor-pointer hover:border-indigo-500 transition-colors shrink-0 group relative"
+                      title="Générer un nouveau logo"
+                    >
+                      {settings.logoUrl ? (
+                        <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                      ) : (
+                        <ImageIcon className="w-6 h-6 text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                      )}
+                      {generatingLogo && (
+                        <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
+                          <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <input 
+                        type="url" 
+                        value={settings.logoUrl || ''}
+                        onChange={(e) => setSettings({...settings, logoUrl: e.target.value})}
+                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="URL de l'image (https://...)"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">Cliquez sur l'aperçu pour générer avec l'IA.</p>
+                    </div>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">

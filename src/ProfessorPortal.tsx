@@ -4,6 +4,7 @@ import { BookOpen, Bell, LogOut, Upload, Users, FileText, MessageSquare, Sparkle
 import ProfessorAITools from './components/ProfessorAITools';
 import { db } from './firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
+import Logo from './components/Logo';
 
 interface EnrolledStudent {
   name: string;
@@ -395,9 +396,7 @@ export default function ProfessorPortal() {
       <header className="bg-slate-900 text-white p-4 sticky top-0 z-50 shadow-md">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-emerald-500 rounded-lg flex items-center justify-center">
-              <BookOpen className="h-6 w-6" />
-            </div>
+            <Logo className="w-10 h-10" withText={false} />
             <div>
               <h1 className="text-lg font-extrabold leading-none tracking-tight">
                 UCCM <span className="font-light text-slate-300">| Professeur</span>

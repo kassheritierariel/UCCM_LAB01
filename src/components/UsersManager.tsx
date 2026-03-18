@@ -4,7 +4,7 @@ import { collection, query, onSnapshot, orderBy, doc, updateDoc, deleteDoc, wher
 import { 
   Search, Filter, Edit2, Trash2, ShieldCheck, GraduationCap, 
   Briefcase, Award, Calculator, X, Plus, AlertCircle, MoreHorizontal,
-  Mail, Calendar, ChevronUp, ChevronDown, FileBadge, Printer, Building2
+  Mail, Calendar, ChevronUp, ChevronDown, FileBadge, Printer, Building2, Download
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -186,6 +186,46 @@ export default function UsersManager() {
     return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
   };
 
+  const handleExportCSV = () => {
+    const headers = [
+      'ID',
+      'Nom',
+      'Email',
+      'Rôle',
+      'Faculté',
+      'Promotion',
+      'Matricule',
+      'Date d\'inscription'
+    ];
+
+    const csvContent = [
+      headers.join(','),
+      ...sortedUsers.map(u => {
+        const row = [
+          u.id,
+          `"${(u.name || '').replace(/"/g, '""')}"`,
+          u.email || '',
+          roleConfig[u.role]?.label || u.role,
+          `"${(u.faculty || '').replace(/"/g, '""')}"`,
+          `"${(u.promotion || '').replace(/"/g, '""')}"`,
+          u.matricule || '',
+          u.createdAt ? (u.createdAt.toDate ? format(u.createdAt.toDate(), 'dd/MM/yyyy') : format(new Date(u.createdAt), 'dd/MM/yyyy')) : ''
+        ];
+        return row.join(',');
+      })
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `utilisateurs_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Header & Actions */}
@@ -194,13 +234,22 @@ export default function UsersManager() {
           <h2 className="text-2xl font-bold text-slate-800">Gestion des Utilisateurs</h2>
           <p className="text-sm text-slate-500 mt-1">Gérez les accès, rôles et informations des membres.</p>
         </div>
-        <button 
-          onClick={() => setIsAddInfoOpen(true)}
-          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all shadow-sm hover:shadow-md"
-        >
-          <Plus className="w-5 h-5" />
-          Nouvel utilisateur
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-medium hover:bg-slate-50 transition-colors shadow-sm"
+          >
+            <Download className="w-5 h-5" />
+            <span className="hidden sm:inline">Exporter CSV</span>
+          </button>
+          <button 
+            onClick={() => setIsAddInfoOpen(true)}
+            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all shadow-sm hover:shadow-md"
+          >
+            <Plus className="w-5 h-5" />
+            Nouvel utilisateur
+          </button>
+        </div>
       </div>
 
       {/* Filters */}

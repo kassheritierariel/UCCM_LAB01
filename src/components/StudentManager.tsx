@@ -23,7 +23,7 @@ interface Student {
   createdAt: any;
   phone?: string;
   address?: string;
-  studentId?: string;
+  matricule?: string;
   status?: 'active' | 'inactive';
 }
 
@@ -52,6 +52,11 @@ export default function StudentManager() {
   
   const [generatingIdFor, setGeneratingIdFor] = useState<Student | null>(null);
   const [institutionData, setInstitutionData] = useState<{name: string, logoUrl: string, address: string, primaryColor: string} | null>(null);
+
+  const isMatriculeValid = (matricule?: string) => {
+    if (!matricule) return false;
+    return /^[a-zA-Z0-9]{6,15}$/.test(matricule);
+  };
 
   useEffect(() => {
     setCurrentPage(1);
@@ -112,14 +117,21 @@ export default function StudentManager() {
   const uniqueSpecialties = Array.from(new Set(students.map(s => s.specialty).filter(Boolean))) as string[];
 
   const filteredStudents = students.filter(s => {
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = s.name?.toLowerCase().includes(searchLower) || 
-           s.email?.toLowerCase().includes(searchLower) ||
-           s.studentId?.toLowerCase().includes(searchLower) ||
-           s.faculty?.toLowerCase().includes(searchLower) ||
-           s.promotion?.toLowerCase().includes(searchLower) ||
-           s.campus?.toLowerCase().includes(searchLower) ||
-           s.specialty?.toLowerCase().includes(searchLower);
+    const searchLower = searchTerm.toLowerCase().trim();
+    const searchClean = searchLower.replace(/[\s-]/g, '');
+    const safeString = (val: any) => (val || '').toString().toLowerCase();
+    const safeCleanString = (val: any) => safeString(val).replace(/[\s-]/g, '');
+    
+    const matchesSearch = safeString(s.name).includes(searchLower) || 
+           safeString(s.email).includes(searchLower) ||
+           safeCleanString(s.matricule).includes(searchClean) ||
+           safeCleanString((s as any).studentId).includes(searchClean) ||
+           safeString(s.id).includes(searchClean) ||
+           safeString(s.phone).includes(searchLower) ||
+           safeString(s.faculty).includes(searchLower) ||
+           safeString(s.promotion).includes(searchLower) ||
+           safeString(s.campus).includes(searchLower) ||
+           safeString(s.specialty).includes(searchLower);
            
     const matchesFaculty = filterFaculty === '' || s.faculty === filterFaculty;
     const matchesPromotion = filterPromotion === '' || s.promotion === filterPromotion;
@@ -163,7 +175,7 @@ export default function StudentManager() {
     if (key === 'createdAt') {
       aValue = a.createdAt?.toMillis?.() || a.createdAt?.seconds || 0;
       bValue = b.createdAt?.toMillis?.() || b.createdAt?.seconds || 0;
-    } else if (key === 'name' || key === 'email' || key === 'id' || key === 'studentId' || key === 'faculty' || key === 'promotion') {
+    } else if (key === 'name' || key === 'email' || key === 'id' || key === 'matricule' || key === 'faculty' || key === 'promotion') {
       aValue = (aValue || '').toString().toLowerCase();
       bValue = (bValue || '').toString().toLowerCase();
     }
@@ -202,6 +214,10 @@ export default function StudentManager() {
     e.preventDefault();
     if (!editingStudent) return;
     
+    if (!isMatriculeValid(editingStudent.matricule)) {
+      return;
+    }
+    
     setIsSaving(true);
     try {
       const userRef = doc(db, 'users', editingStudent.id);
@@ -226,8 +242,8 @@ export default function StudentManager() {
       if (editingStudent.address) updateData.address = editingStudent.address;
       else updateData.address = deleteField();
       
-      if (editingStudent.studentId) updateData.studentId = editingStudent.studentId;
-      else updateData.studentId = deleteField();
+      if (editingStudent.matricule) updateData.matricule = editingStudent.matricule;
+      else updateData.matricule = deleteField();
       
       if (editingStudent.status) updateData.status = editingStudent.status;
       else updateData.status = 'active';
@@ -263,7 +279,7 @@ export default function StudentManager() {
       headers.join(','),
       ...sortedStudents.map(s => {
         const row = [
-          s.studentId || '',
+          s.matricule || '',
           `"${s.name.replace(/"/g, '""')}"`,
           s.email || '',
           s.phone || '',
@@ -301,7 +317,7 @@ export default function StudentManager() {
             className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl font-medium hover:bg-slate-50 transition-colors shadow-sm"
           >
             <Download className="w-5 h-5" />
-            <span>Exporter CSV</span>
+            <span className="hidden sm:inline">Exporter CSV</span>
           </button>
           <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-xl font-medium">
             <GraduationCap className="w-5 h-5" />
@@ -480,10 +496,10 @@ export default function StudentManager() {
                   <tr className="bg-slate-50/80 border-b border-slate-200 text-xs uppercase tracking-wider text-slate-500 font-semibold">
                     <th 
                       className="px-6 py-4 cursor-pointer hover:bg-slate-100 transition-colors group"
-                      onClick={() => handleSort('studentId')}
+                      onClick={() => handleSort('matricule')}
                     >
                       <div className="flex items-center gap-1">
-                        Matricule <SortIcon columnKey="studentId" />
+                        Matricule <SortIcon columnKey="matricule" />
                       </div>
                     </th>
                     <th 
@@ -534,7 +550,7 @@ export default function StudentManager() {
                       .map((s) => (
                       <tr key={s.id} className="hover:bg-slate-50/50 transition-colors group">
                         <td className="px-6 py-4 font-mono text-xs text-slate-500">
-                          {s.studentId || <span className="italic opacity-50">Non défini</span>}
+                          {s.matricule || <span className="italic opacity-50">Non défini</span>}
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-4">
@@ -668,15 +684,28 @@ export default function StudentManager() {
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Matricule</label>
                       <div className="relative">
-                        <Hash className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <Hash className={`w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 ${editingStudent.matricule && !isMatriculeValid(editingStudent.matricule) ? 'text-red-400' : 'text-slate-400'}`} />
                         <input 
                           type="text" 
-                          value={editingStudent.studentId || ''}
-                          onChange={(e) => setEditingStudent({...editingStudent, studentId: e.target.value})}
-                          placeholder="Ex: 2024-001"
-                          className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                          value={editingStudent.matricule || ''}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^a-zA-Z0-9]/g, '');
+                            setEditingStudent({...editingStudent, matricule: val});
+                          }}
+                          maxLength={15}
+                          placeholder="Ex: 2024001"
+                          className={`w-full pl-9 pr-4 py-2.5 bg-white border rounded-xl text-sm focus:ring-2 focus:outline-none transition-all ${
+                            editingStudent.matricule && !isMatriculeValid(editingStudent.matricule)
+                              ? 'border-red-300 focus:ring-red-500 focus:border-red-500 text-red-900'
+                              : 'border-slate-200 focus:ring-blue-500 focus:border-blue-500'
+                          }`}
                         />
                       </div>
+                      {editingStudent.matricule && !isMatriculeValid(editingStudent.matricule) && (
+                        <p className="mt-1.5 text-xs text-red-500 font-medium">
+                          Le matricule doit contenir entre 6 et 15 caractères alphanumériques.
+                        </p>
+                      )}
                     </div>
 
                     <div>
@@ -782,8 +811,8 @@ export default function StudentManager() {
                 </button>
                 <button 
                   type="submit"
-                  disabled={isSaving}
-                  className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:opacity-70 flex items-center justify-center"
+                  disabled={isSaving || (editingStudent.matricule ? !isMatriculeValid(editingStudent.matricule) : false)}
+                  className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center"
                 >
                   {isSaving ? (
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -865,7 +894,7 @@ export default function StudentManager() {
                   <div className="w-full space-y-2.5 mb-6">
                     <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Matricule</span>
-                      <span className="text-xs font-bold text-slate-800 font-mono">{generatingIdFor.studentId || 'N/A'}</span>
+                      <span className="text-xs font-bold text-slate-800 font-mono">{generatingIdFor.matricule || 'N/A'}</span>
                     </div>
                     <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Faculté</span>
@@ -889,7 +918,7 @@ export default function StudentManager() {
                   <div className="mt-auto flex flex-col items-center">
                     <div className="p-1.5 bg-white rounded-lg shadow-sm border border-slate-100">
                       <QRCodeSVG 
-                        value={`student:${generatingIdFor.id}:${generatingIdFor.studentId}`} 
+                        value={`student:${generatingIdFor.id}:${generatingIdFor.matricule}`} 
                         size={64} 
                         level="M"
                         fgColor={institutionData?.primaryColor || '#2563eb'}
@@ -918,12 +947,20 @@ export default function StudentManager() {
               </button>
               <button 
                 onClick={() => window.print()}
-                className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+                disabled={!isMatriculeValid(generatingIdFor.matricule)}
+                className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Printer className="w-4 h-4" />
                 Imprimer
               </button>
             </div>
+            {!isMatriculeValid(generatingIdFor.matricule) && (
+              <div className="px-4 pb-4 bg-slate-50 text-center">
+                <p className="text-xs text-red-500 font-medium">
+                  Impossible d'imprimer : le matricule doit contenir entre 6 et 15 caractères alphanumériques. Veuillez modifier l'étudiant.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}

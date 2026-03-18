@@ -200,6 +200,50 @@ export default function PaymentsManager() {
       .map(({ month, total }) => ({ month, total }));
   }, [payments, chartStartDate, chartEndDate]);
 
+  const handleExportCSV = () => {
+    const headers = [
+      'ID',
+      'Étudiant',
+      'Matricule',
+      'Type',
+      'Montant',
+      'Devise',
+      'Méthode',
+      'Référence',
+      'Statut',
+      'Date'
+    ];
+
+    const csvContent = [
+      headers.join(','),
+      ...filteredPayments.map(p => {
+        const row = [
+          p.id,
+          `"${(p.studentName || '').replace(/"/g, '""')}"`,
+          p.studentId || '',
+          typeConfig[p.type]?.label || p.type,
+          p.amount || 0,
+          p.currency || 'USD',
+          p.paymentMethod || '',
+          p.reference || '',
+          statusConfig[p.status]?.label || p.status,
+          p.createdAt ? (p.createdAt.toDate ? format(p.createdAt.toDate(), 'dd/MM/yyyy HH:mm') : format(new Date(p.createdAt), 'dd/MM/yyyy HH:mm')) : ''
+        ];
+        return row.join(',');
+      })
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `paiements_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Header & Stats */}
@@ -209,13 +253,22 @@ export default function PaymentsManager() {
             <h2 className="text-2xl font-bold text-slate-800">Gestion des Paiements</h2>
             <p className="text-sm text-slate-500 mt-1">Suivez les encaissements et validez les transactions.</p>
           </div>
-          <button 
-            onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all shadow-sm hover:shadow-md"
-          >
-            <Plus className="w-5 h-5" />
-            Nouvel encaissement
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleExportCSV}
+              className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-medium hover:bg-slate-50 transition-colors shadow-sm"
+            >
+              <Download className="w-5 h-5" />
+              <span className="hidden sm:inline">Exporter CSV</span>
+            </button>
+            <button 
+              onClick={() => setIsAddModalOpen(true)}
+              className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all shadow-sm hover:shadow-md"
+            >
+              <Plus className="w-5 h-5" />
+              Nouvel encaissement
+            </button>
+          </div>
         </div>
         <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-2xl shadow-sm text-white flex items-center justify-between">
           <div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
-import { Video, Image as ImageIcon, Mic, MapPin, Loader2, Play, Square, AlertCircle, ExternalLink } from 'lucide-react';
+import { Video, Image as ImageIcon, Mic, MapPin, Loader2, Play, Square, AlertCircle, ExternalLink, Download } from 'lucide-react';
 
 // --- Helper to check API Key ---
 const ensureApiKey = async () => {
@@ -167,12 +167,13 @@ function MapsTool() {
 function ImageGenerationTool() {
   const [prompt, setPrompt] = useState('');
   const [size, setSize] = useState('1K');
+  const [aspectRatio, setAspectRatio] = useState('1:1');
   const [imageUrl, setImageUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleGenerate = async () => {
-    if (!prompt) return;
+    if (!prompt.trim()) return;
     setLoading(true);
     setImageUrl('');
     setError('');
@@ -184,11 +185,11 @@ function ImageGenerationTool() {
       const ai = new GoogleGenAI({ apiKey });
       
       const res = await ai.models.generateContent({
-        model: 'gemini-3-pro-image-preview',
+        model: 'gemini-3.1-flash-image-preview',
         contents: { parts: [{ text: prompt }] },
         config: {
           imageConfig: {
-            aspectRatio: "1:1",
+            aspectRatio: aspectRatio as any,
             imageSize: size as any
           }
         }
@@ -212,54 +213,108 @@ function ImageGenerationTool() {
         setError("Veuillez sélectionner une clé API valide et réessayer.");
         if (window.aistudio) window.aistudio.openSelectKey();
       } else {
-        setError(err.message || "Erreur lors de la génération.");
+        setError(err.message || "Erreur lors de la génération. Assurez-vous que votre prompt respecte les règles de sécurité.");
       }
     } finally {
       setLoading(false);
     }
   };
 
+  const handleDownload = () => {
+    if (!imageUrl) return;
+    const a = document.createElement('a');
+    a.href = imageUrl;
+    a.download = `generation-ia-${Date.now()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   return (
-    <div className="space-y-4 max-w-2xl mx-auto">
-      <h3 className="text-lg font-bold text-slate-800">Génération d'images (Nano Banana Pro)</h3>
-      <p className="text-sm text-slate-500">Décrivez l'image que vous souhaitez générer.</p>
+    <div className="space-y-6 max-w-3xl mx-auto">
+      <div>
+        <h3 className="text-xl font-bold text-slate-800">Générateur d'Images IA</h3>
+        <p className="text-sm text-slate-500 mt-1">Décrivez l'image que vous souhaitez créer avec le plus de détails possible.</p>
+      </div>
       
-      <div className="flex flex-col sm:flex-row gap-2">
-        <input 
-          type="text" 
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Un chat astronaute sur mars..."
-          className="flex-1 px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-        />
-        <select 
-          value={size} 
-          onChange={(e) => setSize(e.target.value)}
-          className="px-4 py-2 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-        >
-          <option value="1K">1K</option>
-          <option value="2K">2K</option>
-          <option value="4K">4K</option>
-        </select>
+      <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-5">
+        <div>
+          <label className="block text-sm font-semibold text-slate-700 mb-2">Description de l'image (Prompt)</label>
+          <textarea 
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Ex: Un campus universitaire futuriste avec des étudiants utilisant des tablettes holographiques, style cyberpunk, éclairage néon..."
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none resize-none h-28 text-sm"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleGenerate();
+              }
+            }}
+          />
+        </div>
+        
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex-1">
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Format</label>
+            <select 
+              value={aspectRatio} 
+              onChange={(e) => setAspectRatio(e.target.value)}
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+            >
+              <option value="1:1">Carré (1:1)</option>
+              <option value="16:9">Paysage (16:9)</option>
+              <option value="9:16">Portrait (9:16)</option>
+              <option value="4:3">Classique (4:3)</option>
+              <option value="3:4">Photo (3:4)</option>
+            </select>
+          </div>
+          <div className="flex-1">
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Résolution</label>
+            <select 
+              value={size} 
+              onChange={(e) => setSize(e.target.value)}
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+            >
+              <option value="512px">Standard (512px)</option>
+              <option value="1K">Haute (1K)</option>
+              <option value="2K">Très Haute (2K)</option>
+              <option value="4K">Ultra (4K)</option>
+            </select>
+          </div>
+        </div>
+
         <button 
           onClick={handleGenerate}
-          disabled={loading || !prompt}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+          disabled={loading || !prompt.trim()}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-3.5 rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2 transition-colors shadow-sm"
         >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
-          Générer
+          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImageIcon className="w-5 h-5" />}
+          {loading ? 'Création de l\'image en cours...' : 'Générer l\'image'}
         </button>
       </div>
 
       {error && (
-        <div className="p-3 bg-red-50 text-red-600 rounded-xl text-sm flex items-center gap-2">
-          <AlertCircle className="w-4 h-4" /> {error}
+        <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm flex items-center gap-3 border border-red-100">
+          <AlertCircle className="w-5 h-5 shrink-0" /> 
+          <p>{error}</p>
         </div>
       )}
 
       {imageUrl && (
-        <div className="mt-6 border border-slate-200 rounded-xl overflow-hidden bg-slate-50 flex justify-center p-4">
-          <img src={imageUrl} alt="Générée par IA" className="max-w-full h-auto rounded-lg shadow-sm" />
+        <div className="mt-8 space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex items-center justify-between">
+            <h4 className="font-semibold text-slate-800">Résultat :</h4>
+            <button 
+              onClick={handleDownload}
+              className="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1.5 bg-blue-50 px-4 py-2 rounded-xl hover:bg-blue-100 transition-colors"
+            >
+              <Download className="w-4 h-4" /> Télécharger
+            </button>
+          </div>
+          <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50 flex justify-center p-2 shadow-inner">
+            <img src={imageUrl} alt="Générée par IA" className="max-w-full h-auto rounded-xl shadow-sm" />
+          </div>
         </div>
       )}
     </div>

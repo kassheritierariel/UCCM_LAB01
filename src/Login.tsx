@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from './AuthContext';
 import { Navigate } from 'react-router-dom';
 import { BookOpen, GraduationCap, ShieldCheck, Library, ArrowRight, Briefcase, Calculator, Award, Mail, Lock, AlertCircle } from 'lucide-react';
+import Logo from './components/Logo';
 
 export default function Login() {
   const { user, signIn, signInWithEmail, signInAsDemo, loading } = useAuth();
@@ -84,9 +85,7 @@ export default function Login() {
         {/* Content Overlay */}
         <div className="relative z-10 flex flex-col justify-between p-16 w-full h-full">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg">
-              <BookOpen className="h-7 w-7 text-white" />
-            </div>
+            <Logo className="w-12 h-12" withText={false} />
             <span className="text-2xl font-extrabold text-white tracking-tight">UCCM</span>
           </div>
 
@@ -140,9 +139,7 @@ export default function Login() {
       <div className="w-full lg:w-1/2 flex flex-col justify-center items-center p-8 sm:p-12 lg:p-24 bg-slate-50 relative">
         {/* Mobile Header (Visible only on small screens) */}
         <div className="lg:hidden absolute top-8 left-8 flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-md">
-            <BookOpen className="h-6 w-6 text-white" />
-          </div>
+          <Logo className="w-10 h-10" withText={false} />
           <span className="text-xl font-extrabold text-slate-900 tracking-tight">UCCM</span>
         </div>
 
