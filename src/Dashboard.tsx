@@ -6,7 +6,7 @@ import {
   BookOpen, Bell, Users, Banknote, Clock, PieChart, Download, Printer,
   UserPlus, CircleDollarSign, FileText, Settings, ChevronRight, ArrowRight,
   MoreHorizontal, ArrowUpRight, LogOut, LayoutDashboard, Search, Menu, X,
-  GraduationCap, Briefcase, Award, ShieldCheck, Calculator, Building2, Sparkles
+  GraduationCap, Briefcase, Award, ShieldCheck, Calculator, Building2, Sparkles, Library
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -18,6 +18,7 @@ import PaymentsManager from './components/PaymentsManager';
 import InstitutionsManager from './components/InstitutionsManager';
 import AITools from './components/AITools';
 import SettingsManager from './components/SettingsManager';
+import DigitalLibrary from './components/DigitalLibrary';
 
 const DistributionBar = ({ label, percentage, colorClass }: { label: string, percentage: number, colorClass: string }) => {
   const colorMap: Record<string, { bg: string, text: string, barBg: string, barFill: string }> = {
@@ -206,6 +207,7 @@ export default function Dashboard() {
     { id: 'students', name: 'Étudiants', icon: GraduationCap, roles: ['admin', 'chef', 'super_admin'], group: 'Gestion' },
     { id: 'documents', name: 'Documents & TFC', icon: FileText, roles: ['admin', 'chef', 'super_admin'], group: 'Gestion' },
     { id: 'payments', name: 'Paiements', icon: CircleDollarSign, roles: ['admin', 'cashier', 'super_admin'], group: 'Gestion' },
+    { id: 'library', name: 'Bibliothèque Numérique', icon: Library, roles: ['admin', 'chef', 'super_admin', 'student', 'professor'], group: 'Outils' },
     { id: 'ai', name: 'Outils IA', icon: Sparkles, roles: ['admin', 'super_admin', 'chef', 'cashier'], group: 'Outils' },
     { id: 'settings', name: 'Paramètres', icon: Settings, roles: ['admin', 'super_admin'], group: 'Outils' },
   ];
@@ -724,11 +726,14 @@ export default function Dashboard() {
           {/* AI TOOLS TAB */}
           {activeTab === 'ai' && <AITools />}
 
+          {/* LIBRARY TAB */}
+          {activeTab === 'library' && <DigitalLibrary />}
+
           {/* SETTINGS TAB */}
           {activeTab === 'settings' && <SettingsManager />}
 
           {/* PLACEHOLDER TABS */}
-          {activeTab !== 'overview' && activeTab !== 'users' && activeTab !== 'students' && activeTab !== 'documents' && activeTab !== 'payments' && activeTab !== 'institutions' && activeTab !== 'ai' && activeTab !== 'settings' && activeTab !== 'notifications' && (
+          {activeTab !== 'overview' && activeTab !== 'users' && activeTab !== 'students' && activeTab !== 'documents' && activeTab !== 'payments' && activeTab !== 'institutions' && activeTab !== 'ai' && activeTab !== 'library' && activeTab !== 'settings' && activeTab !== 'notifications' && (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center max-w-4xl mx-auto mt-8">
               <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
                 {activeTab === 'users' && <Users className="w-10 h-10 text-blue-500" />}

@@ -12,6 +12,7 @@
         "faculty": { "type": "string", "description": "Faculty name (if applicable)" },
         "promotion": { "type": "string", "description": "Promotion/Year (if student)" },
         "subscriptionStatus": { "type": "string", "enum": ["active", "inactive"], "description": "Subscription for accessing restricted docs" },
+        "libraryAccess": { "type": "boolean", "description": "Access to the digital library" },
         "tenantId": { "type": "string", "description": "ID of the institution this user belongs to, or SYSTEM for super admins" },
         "tenantName": { "type": "string", "description": "Name of the institution" },
         "createdAt": { "type": "string", "format": "date-time" }
@@ -62,10 +63,11 @@
         "faculty": { "type": "string" },
         "promotion": { "type": "string" },
         "professorId": { "type": "string", "$ref": "#/entities/User" },
+        "status": { "type": "string", "enum": ["planifié", "en cours", "terminé", "annulé"], "description": "Status of the course" },
         "tenantId": { "type": "string", "description": "ID of the institution" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["name", "faculty", "promotion", "professorId", "tenantId", "createdAt"]
+      "required": ["name", "faculty", "promotion", "professorId", "status", "tenantId", "createdAt"]
     },
     "Notification": {
       "title": "Notification",
@@ -106,12 +108,36 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "domain", "plan", "status", "createdAt"]
+    },
+    "LibraryResource": {
+      "title": "Library Resource",
+      "description": "A book, thesis, or video in the digital library",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "author": { "type": "string" },
+        "level": { "type": "string", "enum": ["primaire", "secondaire", "humanites", "universitaire", "autres"] },
+        "type": { "type": "string", "enum": ["book", "video", "thesis"] },
+        "size": { "type": "string" },
+        "downloads": { "type": "number" },
+        "rating": { "type": "number" },
+        "fileUrl": { "type": "string", "format": "uri" },
+        "faculty": { "type": "string", "description": "Faculty/Department this resource belongs to" },
+        "promotion": { "type": "string", "description": "Promotion/Year this resource belongs to" },
+        "tenantId": { "type": "string", "description": "ID of the institution" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "author", "level", "type", "size", "tenantId", "createdAt"]
     }
   },
   "firestore": {
     "users": {
       "schema": "User",
       "description": "Collection of all users"
+    },
+    "library_resources": {
+      "schema": "LibraryResource",
+      "description": "Collection of all digital library resources"
     },
     "documents": {
       "schema": "AcademicDocument",

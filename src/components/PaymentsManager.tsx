@@ -19,7 +19,7 @@ interface Payment {
   amount: number;
   currency: string;
   status: 'pending' | 'completed' | 'failed';
-  paymentMethod: 'cash' | 'card' | 'transfer' | 'mobile_money';
+  paymentMethod: 'cash' | 'card' | 'transfer' | 'mobile_money' | 'chariow';
   reference: string;
   tenantId?: string;
   createdAt: any;
@@ -576,7 +576,8 @@ export default function PaymentsManager() {
                 >
                   <option value="cash">Espèces (Caisse)</option>
                   <option value="transfer">Virement Bancaire</option>
-                  <option value="mobile_money">Mobile Money</option>
+                  <option value="mobile_money">Mobile Money (M-PESA)</option>
+                  <option value="chariow">Chariow</option>
                 </select>
               </div>
 

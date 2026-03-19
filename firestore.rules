@@ -177,6 +177,7 @@ service cloud.firestore {
              (!('promotion' in data) || (data.promotion is string && data.promotion.size() < 100)) &&
              (!('tenantName' in data) || (data.tenantName is string && data.tenantName.size() < 100)) &&
              (!('subscriptionStatus' in data) || data.subscriptionStatus in ['active', 'inactive']) &&
+             (!('libraryAccess' in data) || data.libraryAccess is bool) &&
              (!('phone' in data) || (data.phone is string && data.phone.size() < 20)) &&
              (!('address' in data) || (data.address is string && data.address.size() < 200)) &&
              (!('studentId' in data) || (data.studentId is string && data.studentId.size() < 50));
@@ -226,6 +227,7 @@ service cloud.firestore {
              data.promotion is string && data.promotion.size() > 0 && data.promotion.size() < 100 &&
              data.professorId is string && data.professorId.size() > 0 &&
              data.tenantId is string && data.tenantId.size() > 0 &&
+             (!('status' in data) || data.status in ['planifié', 'en cours', 'terminé', 'annulé']) &&
              (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
              (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
              (!('enrolledStudents' in data) || data.enrolledStudents is list) &&
@@ -250,6 +252,22 @@ service cloud.firestore {
              data.text is string && data.text.size() > 0 && data.text.size() < 2000 &&
              data.tenantId is string && data.tenantId.size() > 0 &&
              data.createdAt is timestamp;
+    }
+
+    function isValidLibraryResource(data) {
+      return hasRequiredFields(['title', 'author', 'level', 'type', 'size', 'tenantId', 'createdAt']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.author is string && data.author.size() > 0 && data.author.size() < 100 &&
+             data.level in ['primaire', 'secondaire', 'humanites', 'universitaire', 'autres'] &&
+             data.type in ['book', 'video', 'thesis'] &&
+             data.size is string && data.size.size() > 0 && data.size.size() < 50 &&
+             data.tenantId is string && data.tenantId.size() > 0 &&
+             data.createdAt is timestamp &&
+             (!('downloads' in data) || data.downloads is number) &&
+             (!('rating' in data) || data.rating is number) &&
+             (!('fileUrl' in data) || (data.fileUrl is string && data.fileUrl.size() < 1000)) &&
+             (!('faculty' in data) || (data.faculty is string && data.faculty.size() < 100)) &&
+             (!('promotion' in data) || (data.promotion is string && data.promotion.size() < 100));
     }
 
     // ===============================================================
@@ -328,6 +346,13 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidMessage(request.resource.data) && isSameTenant(request.resource.data) && request.resource.data.senderId == request.auth.uid;
       allow update: if isAuthenticated() && isValidMessage(request.resource.data) && isSameTenant(resource.data) && (resource.data.senderId == request.auth.uid || isAdmin());
       allow delete: if isAuthenticated() && isSameTenant(resource.data) && (resource.data.senderId == request.auth.uid || isAdmin());
+    }
+
+    match /library_resources/{resourceId} {
+      allow read: if isAuthenticated() && isSameTenant(resource.data);
+      allow create: if isAuthenticated() && isValidLibraryResource(request.resource.data) && isSameTenant(request.resource.data) && isAdmin();
+      allow update: if isAuthenticated() && isValidLibraryResource(request.resource.data) && isSameTenant(resource.data) && isAdmin();
+      allow delete: if isAuthenticated() && isSameTenant(resource.data) && isAdmin();
     }
 
     match /generalChat/{messageId} {

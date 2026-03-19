@@ -164,7 +164,7 @@ export default function DocumentsManager() {
 
     const csvContent = [
       headers.join(','),
-      ...filteredDocuments.map(d => {
+      ...filteredDocs.map(d => {
         const row = [
           d.id,
           `"${(d.title || '').replace(/"/g, '""')}"`,
@@ -172,7 +172,7 @@ export default function DocumentsManager() {
           `"${(d.studentName || '').replace(/"/g, '""')}"`,
           `"${(d.faculty || '').replace(/"/g, '""')}"`,
           statusConfig[d.status]?.label || d.status,
-          d.createdAt ? (d.createdAt.toDate ? format(d.createdAt.toDate(), 'dd/MM/yyyy HH:mm') : format(new Date(d.createdAt), 'dd/MM/yyyy HH:mm')) : ''
+          d.submittedAt ? (d.submittedAt.toDate ? format(d.submittedAt.toDate(), 'dd/MM/yyyy HH:mm') : format(new Date(d.submittedAt), 'dd/MM/yyyy HH:mm')) : ''
         ];
         return row.join(',');
       })

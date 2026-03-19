@@ -1,30 +1,33 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
-import { collection, query, onSnapshot, orderBy, doc, updateDoc, where, deleteField, getDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, doc, updateDoc, where, deleteField, getDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { 
-  Search, Filter, Edit2, GraduationCap, X, Mail, Calendar, ChevronUp, ChevronDown, Phone, MapPin, Hash, Building2, BookOpen, QrCode, Printer, FileBadge, Download
+  Search, Filter, Edit2, GraduationCap, X, Mail, Calendar, ChevronUp, ChevronDown, Phone, MapPin, Hash, Building2, BookOpen, QrCode, Printer, FileBadge, Download, User
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '../AuthContext';
 import { QRCodeSVG } from 'qrcode.react';
 
+type AllowedRole = 'student' | 'admin' | 'super_admin' | 'cashier' | 'professor';
+
 interface Student {
   id: string;
   uid: string;
   name: string;
   email: string;
-  role: 'student';
+  role: AllowedRole;
   faculty?: string;
   promotion?: string;
   campus?: string;
   specialty?: string;
+  matricule?: string;
   tenantId?: string;
   createdAt: any;
+  status?: 'active' | 'inactive';
   phone?: string;
   address?: string;
-  matricule?: string;
-  status?: 'active' | 'inactive';
+  libraryAccess?: boolean;
 }
 
 export default function StudentManager() {
@@ -42,16 +45,21 @@ export default function StudentManager() {
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   
   const [currentGroupPage, setCurrentGroupPage] = useState(1);
-  const groupsPerPage = 9;
+  const [groupsPerPage, setGroupsPerPage] = useState(9);
   
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   
   const [generatingIdFor, setGeneratingIdFor] = useState<Student | null>(null);
   const [institutionData, setInstitutionData] = useState<{name: string, logoUrl: string, address: string, primaryColor: string} | null>(null);
+
+  const [courses, setCourses] = useState<any[]>([]);
+  const [professors, setProfessors] = useState<any[]>([]);
+  const [managingCoursesForGroup, setManagingCoursesForGroup] = useState<string | null>(null);
+  const [newCourseForm, setNewCourseForm] = useState({ name: '', professorId: '' });
 
   const isMatriculeValid = (matricule?: string) => {
     if (!matricule) return false;
@@ -109,6 +117,25 @@ export default function StudentManager() {
       setLoading(false);
     });
     return () => unsubscribe();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user?.tenantId) return;
+
+    const coursesQuery = query(collection(db, 'courses'), where('tenantId', '==', user.tenantId));
+    const unsubscribeCourses = onSnapshot(coursesQuery, (snapshot) => {
+      setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const professorsQuery = query(collection(db, 'users'), where('tenantId', '==', user.tenantId), where('role', '==', 'professor'));
+    const unsubscribeProfessors = onSnapshot(professorsQuery, (snapshot) => {
+      setProfessors(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => {
+      unsubscribeCourses();
+      unsubscribeProfessors();
+    };
   }, [user]);
 
   const uniqueFaculties = Array.from(new Set(students.map(s => s.faculty).filter(Boolean))) as string[];
@@ -426,20 +453,46 @@ export default function StudentManager() {
                   <div className="p-3 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
                     <GraduationCap className="w-6 h-6" />
                   </div>
-                  <div className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-bold">
-                    {groupStudents.length} étudiant{groupStudents.length !== 1 ? 's' : ''}
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-bold">
+                      {groupStudents.length} étudiant{groupStudents.length !== 1 ? 's' : ''}
+                    </div>
+                    {(() => {
+                      const [promo, fac] = groupName.split(' - ');
+                      const groupCoursesCount = courses.filter(c => 
+                        (c.promotion || 'Non assignée') === promo && 
+                        (c.faculty || 'Non assigné') === fac
+                      ).length;
+                      return (
+                        <div className="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                          <BookOpen className="w-3 h-3" />
+                          {groupCoursesCount} cours
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
                 <h3 className="text-lg font-bold text-slate-800 mb-2 line-clamp-2">{groupName}</h3>
                 <p className="text-sm text-slate-500 mb-6 flex-1">
                   Année Académique en cours
                 </p>
-                <button 
-                  onClick={() => setSelectedGroup(groupName)}
-                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 mt-auto"
-                >
-                  Voir la liste
-                </button>
+                <div className="flex gap-2 mt-auto">
+                  <button 
+                    onClick={() => setSelectedGroup(groupName)}
+                    className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-700 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                  >
+                    Voir la liste
+                  </button>
+                  {(user?.role === 'professor' || user?.role === 'admin' || user?.role === 'super_admin') && (
+                    <button 
+                      onClick={() => setManagingCoursesForGroup(groupName)}
+                      className="bg-blue-50 hover:bg-blue-100 text-blue-600 p-2.5 rounded-xl transition-colors flex items-center justify-center"
+                      title={user?.role === 'professor' ? 'Gérer mes cours' : 'Gérer les cours'}
+                    >
+                      <BookOpen className="w-5 h-5" />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
             {Object.keys(groupedStudents).length === 0 && !loading && (
@@ -450,10 +503,25 @@ export default function StudentManager() {
           </div>
           
           {Object.keys(groupedStudents).length > 0 && (
-            <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-              <span className="text-sm text-slate-500">
-                Affichage de {Math.min((currentGroupPage - 1) * groupsPerPage + 1, Object.keys(groupedStudents).length)} à {Math.min(currentGroupPage * groupsPerPage, Object.keys(groupedStudents).length)} sur {Object.keys(groupedStudents).length} groupe(s)
-              </span>
+            <div className="flex flex-col sm:flex-row items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-sm gap-4">
+              <div className="flex items-center gap-3 text-sm text-slate-500">
+                <span>
+                  Affichage de {Math.min((currentGroupPage - 1) * groupsPerPage + 1, Object.keys(groupedStudents).length)} à {Math.min(currentGroupPage * groupsPerPage, Object.keys(groupedStudents).length)} sur {Object.keys(groupedStudents).length} groupe(s)
+                </span>
+                <select 
+                  value={groupsPerPage} 
+                  onChange={(e) => {
+                    setGroupsPerPage(Number(e.target.value));
+                    setCurrentGroupPage(1);
+                  }}
+                  className="bg-slate-50 border border-slate-200 text-slate-700 rounded-lg px-2 py-1 outline-none focus:border-blue-500"
+                >
+                  <option value={9}>9 par page</option>
+                  <option value={18}>18 par page</option>
+                  <option value={36}>36 par page</option>
+                  <option value={90}>90 par page</option>
+                </select>
+              </div>
               {Math.ceil(Object.keys(groupedStudents).length / groupsPerPage) > 1 && (
                 <div className="flex items-center gap-2">
                   <button 
@@ -480,14 +548,25 @@ export default function StudentManager() {
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setSelectedGroup(null)}
-              className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <h3 className="text-xl font-bold text-slate-800">{selectedGroup}</h3>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => setSelectedGroup(null)}
+                className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <h3 className="text-xl font-bold text-slate-800">{selectedGroup}</h3>
+            </div>
+            {(user?.role === 'professor' || user?.role === 'admin' || user?.role === 'super_admin') && (
+              <button
+                onClick={() => setManagingCoursesForGroup(selectedGroup)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm"
+              >
+                <BookOpen className="w-4 h-4" />
+                {user?.role === 'professor' ? 'Gérer mes cours' : 'Gérer les cours'}
+              </button>
+            )}
           </div>
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
@@ -512,6 +591,7 @@ export default function StudentManager() {
                     </th>
                     <th className="px-6 py-4">Contact</th>
                     <th className="px-6 py-4">Statut</th>
+                    <th className="px-6 py-4">Bibliothèque</th>
                     <th 
                       className="px-6 py-4 cursor-pointer hover:bg-slate-100 transition-colors group"
                       onClick={() => handleSort('createdAt')}
@@ -594,6 +674,30 @@ export default function StudentManager() {
                             {(!s.status || s.status === 'active') ? 'Actif' : 'Inactif'}
                           </span>
                         </td>
+                        <td className="px-6 py-4">
+                          <button
+                            onClick={async () => {
+                              try {
+                                await updateDoc(doc(db, 'users', s.id), {
+                                  libraryAccess: !s.libraryAccess
+                                });
+                              } catch (error) {
+                                console.error("Error updating library access:", error);
+                                alert("Erreur lors de la mise à jour de l'accès à la bibliothèque.");
+                              }
+                            }}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                              s.libraryAccess ? 'bg-blue-600' : 'bg-slate-200'
+                            }`}
+                            title={s.libraryAccess ? "Révoquer l'accès" : "Accorder l'accès"}
+                          >
+                            <span
+                              className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                                s.libraryAccess ? 'translate-x-5' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                        </td>
                         <td className="px-6 py-4 text-slate-500 text-xs">
                           <div className="flex items-center gap-1.5">
                             <Calendar className="w-3.5 h-3.5" />
@@ -624,10 +728,25 @@ export default function StudentManager() {
                 </tbody>
               </table>
             </div>
-            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 text-xs text-slate-500 flex justify-between items-center">
-              <span>
-                Affichage de {Math.min((currentPage - 1) * itemsPerPage + 1, (groupedStudents[selectedGroup] || []).length)} à {Math.min(currentPage * itemsPerPage, (groupedStudents[selectedGroup] || []).length)} sur {(groupedStudents[selectedGroup] || []).length} étudiant(s)
-              </span>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 text-xs text-slate-500 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div className="flex items-center gap-3">
+                <span>
+                  Affichage de {Math.min((currentPage - 1) * itemsPerPage + 1, (groupedStudents[selectedGroup] || []).length)} à {Math.min(currentPage * itemsPerPage, (groupedStudents[selectedGroup] || []).length)} sur {(groupedStudents[selectedGroup] || []).length} étudiant(s)
+                </span>
+                <select 
+                  value={itemsPerPage} 
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-white border border-slate-200 text-slate-700 rounded-lg px-2 py-1 outline-none focus:border-blue-500"
+                >
+                  <option value={10}>10 par page</option>
+                  <option value={25}>25 par page</option>
+                  <option value={50}>50 par page</option>
+                  <option value={100}>100 par page</option>
+                </select>
+              </div>
               <div className="flex items-center gap-2">
                 <button 
                   onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
@@ -961,6 +1080,191 @@ export default function StudentManager() {
                 </p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de gestion des cours pour le groupe */}
+      {managingCoursesForGroup && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h2 className="text-xl font-bold text-slate-800">Cours du groupe</h2>
+                <p className="text-sm text-slate-500">{managingCoursesForGroup}</p>
+              </div>
+              <button 
+                onClick={() => setManagingCoursesForGroup(null)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 bg-slate-50/50">
+              <div className="space-y-6">
+                {/* Liste des cours actuels */}
+                <div>
+                  <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">Cours associés</h3>
+                  {(() => {
+                    const [promo, fac] = managingCoursesForGroup.split(' - ');
+                    const groupCourses = courses.filter(c => 
+                      (c.promotion || 'Non assignée') === promo && 
+                      (c.faculty || 'Non assigné') === fac
+                    );
+
+                    if (groupCourses.length === 0) {
+                      return (
+                        <div className="text-center py-8 bg-white rounded-xl border border-slate-200 border-dashed">
+                          <BookOpen className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                          <p className="text-sm text-slate-500">Aucun cours n'est encore associé à ce groupe.</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="grid gap-3">
+                        {groupCourses.map(course => {
+                          const prof = professors.find(p => p.id === course.professorId);
+                          return (
+                            <div key={course.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center group hover:border-blue-300 transition-colors">
+                              <div>
+                                <h4 className="font-bold text-slate-800">{course.name}</h4>
+                                <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                  <User className="w-3 h-3" />
+                                  {prof ? prof.name : 'Professeur inconnu'}
+                                </p>
+                              </div>
+                              {(user?.uid === course.professorId || user?.role === 'admin' || user?.role === 'super_admin') && (
+                                <button
+                                  onClick={async () => {
+                                    if (window.confirm('Voulez-vous vraiment retirer ce cours de ce groupe ?')) {
+                                      try {
+                                        await updateDoc(doc(db, 'courses', course.id), {
+                                          faculty: '',
+                                          promotion: ''
+                                        });
+                                      } catch (error) {
+                                        console.error("Error removing course from group:", error);
+                                      }
+                                    }
+                                  }}
+                                  className="p-2 text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                                  title="Retirer du groupe"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Formulaire d'ajout de cours */}
+                {(user?.role === 'professor' || user?.role === 'admin' || user?.role === 'super_admin') && (
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-6">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">Associer un cours existant</h3>
+                      <div className="flex gap-3">
+                        <select
+                          className="flex-1 px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                          onChange={async (e) => {
+                            if (!e.target.value) return;
+                            const courseId = e.target.value;
+                            const [promo, fac] = managingCoursesForGroup.split(' - ');
+                            try {
+                              await updateDoc(doc(db, 'courses', courseId), {
+                                faculty: fac === 'Non assigné' ? '' : fac,
+                                promotion: promo === 'Non assignée' ? '' : promo
+                              });
+                              e.target.value = ''; // Reset select
+                            } catch (error) {
+                              console.error("Error updating course:", error);
+                            }
+                          }}
+                        >
+                          <option value="">Sélectionner un cours...</option>
+                          {courses
+                            .filter(c => (user.role === 'professor' ? c.professorId === user.uid : true) && ((c.promotion || 'Non assignée') !== managingCoursesForGroup.split(' - ')[0] || (c.faculty || 'Non assigné') !== managingCoursesForGroup.split(' - ')[1]))
+                            .map(c => (
+                              <option key={c.id} value={c.id}>{c.name} {c.promotion || c.faculty ? `(Actuellement: ${c.promotion || 'N/A'} - ${c.faculty || 'N/A'})` : ''}</option>
+                            ))
+                          }
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="pt-6 border-t border-slate-100">
+                      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">Créer un nouveau cours</h3>
+                      <form 
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          if (!newCourseForm.name.trim()) return;
+                          if (user.role !== 'professor' && !newCourseForm.professorId) {
+                            alert("Veuillez sélectionner un professeur.");
+                            return;
+                          }
+                          
+                          const [promo, fac] = managingCoursesForGroup.split(' - ');
+                          
+                          try {
+                            await addDoc(collection(db, 'courses'), {
+                              name: newCourseForm.name,
+                              faculty: fac === 'Non assigné' ? '' : fac,
+                              promotion: promo === 'Non assignée' ? '' : promo,
+                              professorId: user.role === 'professor' ? user.uid : newCourseForm.professorId,
+                              tenantId: user.tenantId,
+                              createdAt: serverTimestamp(),
+                              description: '',
+                              notes: '',
+                              deadline: ''
+                            });
+                            setNewCourseForm({ name: '', professorId: '' });
+                          } catch (error) {
+                            console.error("Error adding course:", error);
+                          }
+                        }}
+                        className="flex flex-col gap-3"
+                      >
+                        <div className="flex gap-3">
+                          <input
+                            type="text"
+                            placeholder="Nom du cours (ex: Mathématiques Avancées)"
+                            value={newCourseForm.name}
+                            onChange={(e) => setNewCourseForm({ ...newCourseForm, name: e.target.value })}
+                            className="flex-1 px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                            required
+                          />
+                          {user.role !== 'professor' && (
+                            <select
+                              value={newCourseForm.professorId}
+                              onChange={(e) => setNewCourseForm({ ...newCourseForm, professorId: e.target.value })}
+                              className="flex-1 px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                              required
+                            >
+                              <option value="">Sélectionner un professeur...</option>
+                              {professors.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                            </select>
+                          )}
+                          <button
+                            type="submit"
+                            disabled={!newCourseForm.name.trim() || (user.role !== 'professor' && !newCourseForm.professorId)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                          >
+                            Créer
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

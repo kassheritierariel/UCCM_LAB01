@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
-import { BookOpen, Bell, LogOut, Upload, Users, FileText, MessageSquare, Sparkles, Plus, Edit2, Trash2, X, Calendar, UserPlus, CheckCircle, XCircle, ChevronRight, Home } from 'lucide-react';
+import { BookOpen, Bell, LogOut, Upload, Users, FileText, MessageSquare, Sparkles, Plus, Edit2, Trash2, X, Calendar, UserPlus, CheckCircle, XCircle, ChevronRight, ChevronLeft, Home } from 'lucide-react';
 import ProfessorAITools from './components/ProfessorAITools';
 import { db } from './firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
 import Logo from './components/Logo';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek, parseISO } from 'date-fns';
+import { fr } from 'date-fns/locale';
 
 interface EnrolledStudent {
   name: string;
@@ -19,6 +21,7 @@ interface Course {
   promotion: string;
   professorId: string;
   tenantId: string;
+  status?: 'planifié' | 'en cours' | 'terminé' | 'annulé';
   description?: string;
   notes?: string;
   deadline?: string;
@@ -50,7 +53,7 @@ export default function ProfessorPortal() {
   
   const [showCourseModal, setShowCourseModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
-  const [courseForm, setCourseForm] = useState({ name: '', faculty: '', promotion: '', description: '', notes: '', deadline: '' });
+  const [courseForm, setCourseForm] = useState({ name: '', faculty: '', promotion: '', description: '', notes: '', deadline: '', status: 'planifié' });
   const [isSaving, setIsSaving] = useState(false);
   
   const [editingDescriptionId, setEditingDescriptionId] = useState<string | null>(null);
@@ -69,6 +72,23 @@ export default function ProfessorPortal() {
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [toastMessage, setToastMessage] = useState<{title: string, message: string, type: 'success' | 'error'} | null>(null);
+
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+
+  const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
+  const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
+
+  const monthStart = startOfMonth(currentMonth);
+  const monthEnd = endOfMonth(monthStart);
+  const startDate = startOfWeek(monthStart, { weekStartsOn: 1 });
+  const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 });
+
+  const calendarDays = eachDayOfInterval({ start: startDate, end: endDate });
+
+  const getCoursesForDate = (date: Date) => {
+    return courses.filter(c => c.deadline && isSameDay(parseISO(c.deadline), date));
+  };
 
   const showToast = (title: string, message: string, type: 'success' | 'error') => {
     setToastMessage({ title, message, type });
@@ -183,6 +203,7 @@ export default function ProfessorPortal() {
           description: courseForm.description,
           notes: courseForm.notes,
           deadline: courseForm.deadline,
+          status: courseForm.status,
         });
       } else {
         await addDoc(collection(db, 'courses'), {
@@ -192,6 +213,7 @@ export default function ProfessorPortal() {
           description: courseForm.description,
           notes: courseForm.notes,
           deadline: courseForm.deadline,
+          status: courseForm.status,
           professorId: user.uid,
           tenantId: user.tenantId,
           createdAt: serverTimestamp()
@@ -199,7 +221,7 @@ export default function ProfessorPortal() {
       }
       setShowCourseModal(false);
       setEditingCourse(null);
-      setCourseForm({ name: '', faculty: '', promotion: '', description: '', notes: '', deadline: '' });
+      setCourseForm({ name: '', faculty: '', promotion: '', description: '', notes: '', deadline: '', status: 'planifié' });
       showToast("Succès", "Le cours a été enregistré avec succès.", "success");
     } catch (error) {
       console.error("Error saving course:", error);
@@ -222,13 +244,13 @@ export default function ProfessorPortal() {
 
   const openEditModal = (course: Course) => {
     setEditingCourse(course);
-    setCourseForm({ name: course.name, faculty: course.faculty, promotion: course.promotion, description: course.description || '', notes: course.notes || '', deadline: course.deadline || '' });
+    setCourseForm({ name: course.name, faculty: course.faculty, promotion: course.promotion, description: course.description || '', notes: course.notes || '', deadline: course.deadline || '', status: course.status || 'planifié' });
     setShowCourseModal(true);
   };
 
   const openAddModal = () => {
     setEditingCourse(null);
-    setCourseForm({ name: '', faculty: '', promotion: '', description: '', notes: '', deadline: '' });
+    setCourseForm({ name: '', faculty: '', promotion: '', description: '', notes: '', deadline: '', status: 'planifié' });
     setShowCourseModal(true);
   };
 
@@ -539,7 +561,7 @@ export default function ProfessorPortal() {
               </div>
             </div>
             
-            <div className="md:col-span-1">
+            <div className="md:col-span-1 space-y-6">
               <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-lg font-bold text-slate-800">Mes Cours Assignés</h2>
@@ -575,7 +597,19 @@ export default function ProfessorPortal() {
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                        <h4 className="font-bold text-slate-800 pr-12">{course.name}</h4>
+                        <div className="flex items-center gap-2 pr-12">
+                          <h4 className="font-bold text-slate-800">{course.name}</h4>
+                          {course.status && (
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                              course.status === 'planifié' ? 'bg-blue-100 text-blue-700' :
+                              course.status === 'en cours' ? 'bg-amber-100 text-amber-700' :
+                              course.status === 'terminé' ? 'bg-emerald-100 text-emerald-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {course.status}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-slate-500 mt-1">
                           {course.promotion} {course.faculty} • {course.enrolledStudents ? course.enrolledStudents.length : getEnrolledStudentsCount(course.faculty, course.promotion)} étudiants
                         </p>
@@ -756,6 +790,85 @@ export default function ProfessorPortal() {
                   )}
                 </div>
               </div>
+
+              {/* Calendrier */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-bold text-slate-800">Calendrier</h2>
+                  <div className="flex gap-2">
+                    <button onClick={prevMonth} className="p-1 hover:bg-slate-100 rounded">
+                      <ChevronLeft className="w-4 h-4 text-slate-600" />
+                    </button>
+                    <button onClick={nextMonth} className="p-1 hover:bg-slate-100 rounded">
+                      <ChevronRight className="w-4 h-4 text-slate-600" />
+                    </button>
+                  </div>
+                </div>
+                <div className="text-center font-medium text-slate-700 mb-4 capitalize">
+                  {format(currentMonth, 'MMMM yyyy', { locale: fr })}
+                </div>
+                <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-500 mb-2">
+                  <div>L</div><div>M</div><div>M</div><div>J</div><div>V</div><div>S</div><div>D</div>
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {calendarDays.map((day, idx) => {
+                    const dayCourses = getCoursesForDate(day);
+                    const hasDeadline = dayCourses.length > 0;
+                    const isSelected = selectedDate && isSameDay(day, selectedDate);
+                    const isCurrentMonth = isSameMonth(day, currentMonth);
+
+                    return (
+                      <div
+                        key={idx}
+                        onClick={() => hasDeadline && setSelectedDate(day)}
+                        className={`
+                          aspect-square flex items-center justify-center rounded-full text-sm relative
+                          ${!isCurrentMonth ? 'text-slate-300' : 'text-slate-700'}
+                          ${isSelected ? 'bg-emerald-600 text-white font-bold' : ''}
+                          ${hasDeadline && !isSelected ? 'bg-amber-100 text-amber-900 font-bold cursor-pointer hover:bg-amber-200' : ''}
+                          ${!hasDeadline && isCurrentMonth ? 'hover:bg-slate-100' : ''}
+                        `}
+                      >
+                        {format(day, 'd')}
+                        {hasDeadline && (
+                          <span className="absolute bottom-1 w-1 h-1 rounded-full bg-amber-500"></span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {selectedDate && (
+                  <div className="mt-4 pt-4 border-t border-slate-100">
+                    <h3 className="text-sm font-bold text-slate-800 mb-2 capitalize">
+                      {format(selectedDate, 'EEEE d MMMM yyyy', { locale: fr })}
+                    </h3>
+                    <div className="space-y-2">
+                      {getCoursesForDate(selectedDate).map(course => (
+                        <div key={course.id} className="p-2 bg-amber-50 border border-amber-100 rounded text-sm">
+                          <div className="flex items-center justify-between">
+                            <div className="font-medium text-amber-900">{course.name}</div>
+                            {course.status && (
+                              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                                course.status === 'planifié' ? 'bg-blue-100 text-blue-700' :
+                                course.status === 'en cours' ? 'bg-amber-200 text-amber-800' :
+                                course.status === 'terminé' ? 'bg-emerald-100 text-emerald-700' :
+                                'bg-red-100 text-red-700'
+                              }`}>
+                                {course.status}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-amber-700">{course.promotion} {course.faculty}</div>
+                        </div>
+                      ))}
+                      {getCoursesForDate(selectedDate).length === 0 && (
+                        <div className="text-sm text-slate-500">Aucune date limite ce jour.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -858,6 +971,20 @@ export default function ProfessorPortal() {
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
                   placeholder="ex: G1"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Statut</label>
+                <select
+                  value={courseForm.status}
+                  onChange={(e) => setCourseForm({...courseForm, status: e.target.value})}
+                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
+                >
+                  <option value="planifié">Planifié</option>
+                  <option value="en cours">En cours</option>
+                  <option value="terminé">Terminé</option>
+                  <option value="annulé">Annulé</option>
+                </select>
               </div>
 
               <div>

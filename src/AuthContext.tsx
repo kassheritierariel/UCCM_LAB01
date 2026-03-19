@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut as firebaseSignOut, signInAnonymously, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp, addDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, addDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 
 interface UserData {
   uid: string;
@@ -13,6 +13,7 @@ interface UserData {
   tenantId?: string; // For SaaS multi-tenancy
   tenantName?: string;
   subscriptionStatus?: 'active' | 'inactive';
+  libraryAccess?: boolean;
 }
 
 interface AuthContextType {
@@ -40,82 +41,99 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    let unsubscribeUser: (() => void) | undefined;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         try {
-          // Check if user exists in Firestore
           const userDocRef = doc(db, 'users', firebaseUser.uid);
-          const userDoc = await getDoc(userDocRef);
+          
+          unsubscribeUser = onSnapshot(userDocRef, async (userDoc) => {
+            if (userDoc.exists()) {
+              setUser(userDoc.data() as UserData);
+              setLoading(false);
+            } else {
+              // Create new user
+              const isSuperAdminEmail = firebaseUser.email === 'kassheritier@telgroups.org';
+              
+              let role = 'student';
+              let tenantId = 'tenant_demo_1';
+              let tenantName = 'Université Démo UCCM';
 
-          if (userDoc.exists()) {
-            setUser(userDoc.data() as UserData);
-          } else {
-            // Create new user
-            const isSuperAdminEmail = firebaseUser.email === 'kassheritier@telgroups.org';
-            
-            let role = 'student';
-            let tenantId = 'tenant_demo_1';
-            let tenantName = 'Université Démo UCCM';
-
-            if (isSuperAdminEmail) {
-              role = 'super_admin';
-              tenantId = 'SYSTEM';
-              tenantName = 'Plateforme SaaS';
-            } else if (firebaseUser.email) {
-              // Check if this email is assigned as an admin to any institution
-              try {
-                const instQuery = query(collection(db, 'institutions'), where('contactEmail', '==', firebaseUser.email));
-                const instSnapshot = await getDocs(instQuery);
-                
-                if (!instSnapshot.empty) {
-                  const instDoc = instSnapshot.docs[0];
-                  role = 'admin';
-                  tenantId = instDoc.id;
-                  tenantName = instDoc.data().name;
+              if (isSuperAdminEmail) {
+                role = 'super_admin';
+                tenantId = 'SYSTEM';
+                tenantName = 'Plateforme SaaS';
+              } else if (firebaseUser.email) {
+                // Check if this email is assigned as an admin to any institution
+                try {
+                  const instQuery = query(collection(db, 'institutions'), where('contactEmail', '==', firebaseUser.email));
+                  const instSnapshot = await getDocs(instQuery);
+                  
+                  if (!instSnapshot.empty) {
+                    const instDoc = instSnapshot.docs[0];
+                    role = 'admin';
+                    tenantId = instDoc.id;
+                    tenantName = instDoc.data().name;
+                  }
+                } catch (err) {
+                  console.error("Error checking institution admin status:", err);
                 }
-              } catch (err) {
-                console.error("Error checking institution admin status:", err);
+              }
+
+              const newUser = {
+                uid: firebaseUser.uid,
+                name: firebaseUser.displayName || 'Unknown User',
+                email: firebaseUser.email || '',
+                role,
+                tenantId,
+                tenantName,
+                createdAt: serverTimestamp(),
+              };
+              
+              await setDoc(userDocRef, newUser);
+              setUser(newUser as unknown as UserData);
+              setLoading(false);
+
+              // Add notification for new user
+              try {
+                await addDoc(collection(db, 'notifications'), {
+                  userId: firebaseUser.uid,
+                  message: `Nouvel utilisateur inscrit : ${newUser.name} (${newUser.role})`,
+                  read: false,
+                  tenantId: newUser.tenantId,
+                  createdAt: serverTimestamp()
+                });
+              } catch (e) {
+                console.error("Could not create notification", e);
               }
             }
-
-            const newUser = {
-              uid: firebaseUser.uid,
-              name: firebaseUser.displayName || 'Unknown User',
-              email: firebaseUser.email || '',
-              role,
-              tenantId,
-              tenantName,
-              createdAt: serverTimestamp(),
-            };
-            
-            await setDoc(userDocRef, newUser);
-            setUser(newUser as unknown as UserData);
-
-            // Add notification for new user
-            try {
-              await addDoc(collection(db, 'notifications'), {
-                userId: firebaseUser.uid,
-                message: `Nouvel utilisateur inscrit : ${newUser.name} (${newUser.role})`,
-                read: false,
-                tenantId: newUser.tenantId,
-                createdAt: serverTimestamp()
-              });
-            } catch (e) {
-              console.error("Could not create notification", e);
-            }
-          }
+          }, (error) => {
+            console.error("Error listening to user document:", error);
+            setUser(null);
+            setLoading(false);
+          });
         } catch (error) {
           console.error("Error fetching or creating user:", error);
           // Fallback to null if there's a permission error so the app doesn't crash completely
           setUser(null);
+          setLoading(false);
         }
       } else {
         setUser(null);
+        setLoading(false);
+        if (unsubscribeUser) {
+          unsubscribeUser();
+        }
       }
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeUser) {
+        unsubscribeUser();
+      }
+    };
   }, []);
 
   const signIn = async () => {

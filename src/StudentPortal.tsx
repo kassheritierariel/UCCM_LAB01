@@ -11,7 +11,7 @@ export default function StudentPortal() {
   const [activeTab, setActiveTab] = useState<'resources' | 'deposit' | 'ai' | 'payments' | 'workspace'>('resources');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'mobile' | 'card' | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'mobile' | 'card' | 'chariow' | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -370,8 +370,21 @@ export default function StudentPortal() {
                     <Smartphone className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="font-bold text-slate-800">Mobile Money</div>
-                    <div className="text-xs text-slate-500">M-Pesa, Airtel Money, Orange Money</div>
+                    <div className="font-bold text-slate-800">Mobile Money (M-PESA)</div>
+                    <div className="text-xs text-slate-500">Envoyez au +243818261297</div>
+                  </div>
+                </button>
+
+                <button 
+                  onClick={() => setSelectedPaymentMethod('chariow')}
+                  className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 transition-all text-left ${selectedPaymentMethod === 'chariow' ? 'border-purple-600 bg-purple-50' : 'border-slate-200 hover:border-purple-300'}`}
+                >
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${selectedPaymentMethod === 'chariow' ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                    <CreditCard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-800">Chariow</div>
+                    <div className="text-xs text-slate-500">Paiement sécurisé via Chariow</div>
                   </div>
                 </button>
 
@@ -391,14 +404,32 @@ export default function StudentPortal() {
 
               {selectedPaymentMethod === 'mobile' && (
                 <div className="mt-6 space-y-4 animate-in fade-in slide-in-from-bottom-4">
+                  <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-800">
+                    <p className="font-semibold mb-2">Instructions M-PESA :</p>
+                    <ol className="list-decimal list-inside space-y-1">
+                      <li>Envoyez le montant exact au numéro : <strong>+243818261297</strong></li>
+                      <li>Saisissez la référence de transaction ci-dessous</li>
+                    </ol>
+                  </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Numéro de téléphone</label>
-                    <input type="tel" placeholder="+243 99 000 0000" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Référence de la transaction</label>
+                    <input type="text" placeholder="Ex: 8G2H9K..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
                   </div>
                   <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors">
-                    Payer 250.00 $ via Mobile Money
+                    Confirmer le paiement Mobile Money
                   </button>
-                  <p className="text-xs text-center text-slate-500">Vous recevrez un prompt sur votre téléphone pour confirmer.</p>
+                  <p className="text-xs text-center text-slate-500">Votre paiement sera validé par l'administration.</p>
+                </div>
+              )}
+
+              {selectedPaymentMethod === 'chariow' && (
+                <div className="mt-6 space-y-4 animate-in fade-in slide-in-from-bottom-4">
+                  <p className="text-sm text-slate-600 text-center mb-4">
+                    Vous allez être redirigé vers la plateforme sécurisée Chariow pour finaliser votre paiement.
+                  </p>
+                  <button className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl transition-colors">
+                    Payer 250.00 $ via Chariow
+                  </button>
                 </div>
               )}
 
