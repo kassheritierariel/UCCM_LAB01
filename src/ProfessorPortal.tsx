@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
-import { BookOpen, Bell, LogOut, Upload, Users, FileText, MessageSquare, Sparkles, Plus, Edit2, Trash2, X, Calendar, UserPlus, CheckCircle, XCircle, ChevronRight, ChevronLeft, Home } from 'lucide-react';
+import { BookOpen, Bell, LogOut, Upload, Users, FileText, MessageSquare, Sparkles, Plus, Edit2, Trash2, X, Calendar, UserPlus, CheckCircle, XCircle, ChevronRight, ChevronLeft, Home, AlertCircle } from 'lucide-react';
 import ProfessorAITools from './components/ProfessorAITools';
-import { db } from './firebase';
+import { db, storage } from './firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import Logo from './components/Logo';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -29,6 +30,19 @@ interface Course {
   createdAt: any;
 }
 
+interface CourseDocument {
+  id: string;
+  title: string;
+  description: string;
+  type: 'syllabus' | 'notes' | 'exercise' | 'other';
+  fileName: string;
+  fileUrl: string;
+  courseId: string;
+  professorId: string;
+  tenantId: string;
+  createdAt: any;
+}
+
 interface Student {
   id: string;
   faculty?: string;
@@ -50,8 +64,12 @@ export default function ProfessorPortal() {
   
   const [courses, setCourses] = useState<Course[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
+  const [courseDocuments, setCourseDocuments] = useState<CourseDocument[]>([]);
   
   const [showCourseModal, setShowCourseModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadForm, setUploadForm] = useState({ title: '', description: '', type: 'syllabus', courseId: '', fileName: '', fileUrl: '' });
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [courseForm, setCourseForm] = useState({ name: '', faculty: '', promotion: '', description: '', notes: '', deadline: '', status: 'planifié' });
   const [isSaving, setIsSaving] = useState(false);
@@ -66,12 +84,14 @@ export default function ProfessorPortal() {
   const [tempDeadline, setTempDeadline] = useState('');
 
   const [managingCourseId, setManagingCourseId] = useState<string | null>(null);
+  const [managingCoursesForGroup, setManagingCoursesForGroup] = useState<string | null>(null);
   const [newStudentForm, setNewStudentForm] = useState({ name: '', email: '', studentId: '' });
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [toastMessage, setToastMessage] = useState<{title: string, message: string, type: 'success' | 'error'} | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{message: string, onConfirm: () => void} | null>(null);
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -126,9 +146,22 @@ export default function ProfessorPortal() {
       } as Student)));
     });
 
+    // Fetch course documents
+    const qDocs = query(
+      collection(db, 'course_documents'),
+      where('professorId', '==', user.uid),
+      where('tenantId', '==', user.tenantId),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribeDocs = onSnapshot(qDocs, (snapshot) => {
+      setCourseDocuments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CourseDocument)));
+    });
+
     return () => {
       unsubscribeCourses();
       unsubscribeStudents();
+      unsubscribeDocs();
     };
   }, [user]);
 
@@ -232,14 +265,18 @@ export default function ProfessorPortal() {
   };
 
   const handleDeleteCourse = async (courseId: string) => {
-    // Remplacé window.confirm par une suppression directe avec toast (ou on pourrait faire un modal de confirmation)
-    try {
-      await deleteDoc(doc(db, 'courses', courseId));
-      showToast("Succès", "Le cours a été supprimé.", "success");
-    } catch (error) {
-      console.error("Error deleting course:", error);
-      showToast("Erreur", "Une erreur est survenue lors de la suppression du cours.", "error");
-    }
+    setConfirmAction({
+      message: 'Êtes-vous sûr de vouloir supprimer ce cours ?',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'courses', courseId));
+          showToast("Succès", "Le cours a été supprimé.", "success");
+        } catch (error) {
+          console.error("Error deleting course:", error);
+          showToast("Erreur", "Une erreur est survenue lors de la suppression du cours.", "error");
+        }
+      }
+    });
   };
 
   const openEditModal = (course: Course) => {
@@ -400,6 +437,79 @@ export default function ProfessorPortal() {
     }
   };
 
+  const handleUploadDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !uploadForm.courseId || !uploadForm.title || !selectedFile) return;
+    
+    setIsSaving(true);
+    try {
+      const fileName = selectedFile.name;
+      const storageRef = ref(storage, `course_documents/${user.tenantId}/${uploadForm.courseId}/${Date.now()}_${fileName}`);
+      
+      const uploadTask = uploadBytesResumable(storageRef, selectedFile);
+      
+      uploadTask.on('state_changed', 
+        (snapshot) => {
+          // Progress can be handled here if needed
+        }, 
+        (error) => {
+          console.error("Error uploading file:", error);
+          showToast("Erreur", "Erreur lors de l'upload du fichier.", "error");
+          setIsSaving(false);
+        }, 
+        async () => {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          
+          await addDoc(collection(db, 'course_documents'), {
+            title: uploadForm.title,
+            description: uploadForm.description,
+            type: uploadForm.type,
+            courseId: uploadForm.courseId,
+            fileName: fileName,
+            fileUrl: downloadURL,
+            professorId: user.uid,
+            tenantId: user.tenantId,
+            createdAt: serverTimestamp()
+          });
+
+          setShowUploadModal(false);
+          setUploadForm({ title: '', description: '', type: 'syllabus', courseId: '', fileName: '', fileUrl: '' });
+          setSelectedFile(null);
+          showToast("Succès", "Le document a été partagé avec succès.", "success");
+          setIsSaving(false);
+        }
+      );
+    } catch (error) {
+      console.error("Error uploading document:", error);
+      showToast("Erreur", "Une erreur est survenue lors du partage du document.", "error");
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteDocument = async (document: CourseDocument) => {
+    setConfirmAction({
+      message: 'Êtes-vous sûr de vouloir supprimer ce document ?',
+      onConfirm: async () => {
+        try {
+          if (document.fileUrl && !document.fileUrl.includes('example.com')) {
+            const fileRef = ref(storage, document.fileUrl);
+            try {
+              await deleteObject(fileRef);
+            } catch (storageError) {
+              console.error("Error deleting file from storage:", storageError);
+              // Continue to delete the document even if storage deletion fails
+            }
+          }
+          await deleteDoc(doc(db, 'course_documents', document.id));
+          showToast("Succès", "Le document a été supprimé.", "success");
+        } catch (error) {
+          console.error("Error deleting document:", error);
+          showToast("Erreur", "Une erreur est survenue lors de la suppression du document.", "error");
+        }
+      }
+    });
+  };
+
   const downloadCSVTemplate = () => {
     const csvContent = "Nom,Email,Matricule\nJean Dupont,jean.dupont@example.com,MAT123\nMarie Curie,marie.curie@example.com,MAT456";
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -547,17 +657,64 @@ export default function ProfessorPortal() {
               <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-xl font-bold text-slate-800">Documents Pédagogiques</h2>
-                  <button className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                  <button 
+                    onClick={() => setShowUploadModal(true)}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                  >
                     <Upload className="h-4 w-4" />
                     Partager un document
                   </button>
                 </div>
                 
-                <div className="border-2 border-dashed border-slate-200 rounded-xl p-12 text-center bg-slate-50">
-                  <FileText className="h-12 w-12 text-slate-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-bold text-slate-800">Aucun document partagé</h3>
-                  <p className="text-sm text-slate-500 mt-2">Partagez des supports de cours, des syllabus ou des exercices avec vos étudiants.</p>
-                </div>
+                {courseDocuments.length === 0 ? (
+                  <div className="border-2 border-dashed border-slate-200 rounded-xl p-12 text-center bg-slate-50">
+                    <FileText className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                    <h3 className="text-lg font-bold text-slate-800">Aucun document partagé</h3>
+                    <p className="text-sm text-slate-500 mt-2">Partagez des supports de cours, des syllabus ou des exercices avec vos étudiants.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {courseDocuments.map(doc => {
+                      const course = courses.find(c => c.id === doc.courseId);
+                      return (
+                        <div key={doc.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:shadow-md transition-shadow group relative">
+                          <button 
+                            onClick={() => handleDeleteDocument(doc)}
+                            className="absolute top-2 right-2 p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          <div className="flex items-start gap-3">
+                            <div className={`p-2 rounded-lg shrink-0 ${
+                              doc.type === 'syllabus' ? 'bg-purple-100 text-purple-600' :
+                              doc.type === 'notes' ? 'bg-blue-100 text-blue-600' :
+                              doc.type === 'exercise' ? 'bg-amber-100 text-amber-600' :
+                              'bg-slate-100 text-slate-600'
+                            }`}>
+                              <FileText className="w-5 h-5" />
+                            </div>
+                            <div className="min-w-0 flex-1 pr-6">
+                              <h4 className="font-bold text-slate-800 truncate" title={doc.title}>{doc.title}</h4>
+                              <p className="text-xs font-medium text-emerald-600 truncate mt-0.5">{course?.name || 'Cours inconnu'}</p>
+                              {doc.description && (
+                                <p className="text-xs text-slate-500 mt-1 line-clamp-2">{doc.description}</p>
+                              )}
+                              <div className="flex items-center gap-3 mt-3">
+                                <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+                                  {doc.type === 'syllabus' ? 'Syllabus' : doc.type === 'notes' ? 'Notes de cours' : doc.type === 'exercise' ? 'Exercice' : 'Autre'}
+                                </span>
+                                <span className="text-[10px] text-slate-400">
+                                  {doc.createdAt ? format(doc.createdAt.toDate(), 'dd MMM yyyy', { locale: fr }) : ''}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
             
@@ -877,9 +1034,10 @@ export default function ProfessorPortal() {
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
             <h2 className="text-xl font-bold text-slate-800 mb-6">Promotions & Étudiants</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {Array.from(new Set(courses.map(c => `${c.promotion}|${c.faculty}`))).map(uniquePromo => {
+              {Array.from(new Set(students.map(s => `${s.promotion || 'Non assignée'}|${s.faculty || 'Non assigné'}`))).map(uniquePromo => {
                 const [promotion, faculty] = (uniquePromo as string).split('|');
-                const count = getEnrolledStudentsCount(faculty, promotion);
+                const count = getEnrolledStudentsCount(faculty === 'Non assigné' ? undefined : faculty, promotion === 'Non assignée' ? undefined : promotion);
+                const groupCourses = courses.filter(c => (c.promotion || 'Non assignée') === promotion && (c.faculty || 'Non assigné') === faculty);
                 
                 return (
                   <div key={uniquePromo} className="border border-slate-200 rounded-xl p-6 hover:border-emerald-500 transition-colors cursor-pointer group">
@@ -888,26 +1046,49 @@ export default function ProfessorPortal() {
                         <h3 className="text-lg font-bold text-slate-800 group-hover:text-emerald-600 transition-colors">{promotion} {faculty}</h3>
                         <p className="text-sm text-slate-500">Année Académique en cours</p>
                       </div>
-                      <div className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold">
-                        {count} inscrit{count !== 1 ? 's' : ''}
+                      <div className="flex flex-col items-end gap-2">
+                        <div className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold">
+                          {count} inscrit{count !== 1 ? 's' : ''}
+                        </div>
+                        <div className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                          <BookOpen className="w-3 h-3" />
+                          {groupCourses.length} cours
+                        </div>
                       </div>
                     </div>
+
+                    {groupCourses.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Vos cours associés</h4>
+                        <div className="space-y-2">
+                          {groupCourses.map(c => (
+                            <div key={c.id} className="text-sm text-slate-700 bg-slate-50 p-2 rounded border border-slate-100">
+                              {c.name}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex gap-3 mt-6">
+                      <button 
+                        onClick={() => setManagingCoursesForGroup(`${promotion} - ${faculty}`)}
+                        className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                      >
+                        <BookOpen className="h-4 w-4" />
+                        Gérer les cours
+                      </button>
                       <button className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">
                         <Users className="h-4 w-4" />
                         Liste
-                      </button>
-                      <button className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">
-                        <MessageSquare className="h-4 w-4" />
-                        Discussion
                       </button>
                     </div>
                   </div>
                 );
               })}
-              {courses.length === 0 && (
+              {students.length === 0 && (
                 <div className="col-span-full text-center py-12 text-slate-500">
-                  Vous n'avez pas encore de cours assignés.
+                  Aucun étudiant ou groupe trouvé dans l'établissement.
                 </div>
               )}
             </div>
@@ -1140,6 +1321,304 @@ export default function ProfessorPortal() {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal d'upload de document */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h2 className="text-xl font-bold text-slate-800">Partager un document</h2>
+              <button 
+                onClick={() => setShowUploadModal(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUploadDocument} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Titre du document</label>
+                <input
+                  type="text"
+                  required
+                  className="w-full px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50 focus:bg-white transition-colors"
+                  placeholder="Ex: Syllabus d'Algèbre Linéaire"
+                  value={uploadForm.title}
+                  onChange={e => setUploadForm({...uploadForm, title: e.target.value})}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Description (optionnelle)</label>
+                <textarea
+                  className="w-full px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50 focus:bg-white transition-colors resize-none h-24"
+                  placeholder="Brève description du contenu..."
+                  value={uploadForm.description}
+                  onChange={e => setUploadForm({...uploadForm, description: e.target.value})}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
+                  <select
+                    required
+                    className="w-full px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50 focus:bg-white transition-colors"
+                    value={uploadForm.type}
+                    onChange={e => setUploadForm({...uploadForm, type: e.target.value as any})}
+                  >
+                    <option value="syllabus">Syllabus</option>
+                    <option value="notes">Notes de cours</option>
+                    <option value="exercise">Exercice / TP</option>
+                    <option value="other">Autre</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Cours associé</label>
+                  <select
+                    required
+                    className="w-full px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50 focus:bg-white transition-colors"
+                    value={uploadForm.courseId}
+                    onChange={e => setUploadForm({...uploadForm, courseId: e.target.value})}
+                  >
+                    <option value="">Sélectionner un cours...</option>
+                    {courses.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Fichier</label>
+                <div className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center hover:border-blue-400 transition-colors bg-slate-50">
+                  <input
+                    type="file"
+                    required
+                    className="hidden"
+                    id="file-upload"
+                    onChange={e => {
+                      if (e.target.files && e.target.files[0]) {
+                        setSelectedFile(e.target.files[0]);
+                      }
+                    }}
+                  />
+                  <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center">
+                    <Upload className="w-8 h-8 text-slate-400 mb-2" />
+                    <span className="text-sm font-medium text-blue-600 hover:text-blue-700">Cliquez pour sélectionner un fichier</span>
+                    <span className="text-xs text-slate-500 mt-1">PDF, DOCX, PPTX (Max 10MB)</span>
+                  </label>
+                  {selectedFile && (
+                    <div className="mt-4 p-2 bg-blue-50 rounded-lg flex items-center gap-2 text-sm text-blue-800">
+                      <FileText className="w-4 h-4" />
+                      <span className="truncate">{selectedFile.name}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowUploadModal(false)}
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSaving || !selectedFile}
+                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isSaving ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Partage...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      <span>Partager le document</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de gestion des cours pour le groupe */}
+      {managingCoursesForGroup && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h2 className="text-xl font-bold text-slate-800">Cours du groupe</h2>
+                <p className="text-sm text-slate-500">{managingCoursesForGroup}</p>
+              </div>
+              <button 
+                onClick={() => setManagingCoursesForGroup(null)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 bg-slate-50/50">
+              <div className="space-y-6">
+                {/* Liste des cours actuels */}
+                <div>
+                  <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">Cours associés</h3>
+                  {(() => {
+                    const [promo, fac] = managingCoursesForGroup.split(' - ');
+                    const groupCourses = courses.filter(c => 
+                      (c.promotion || 'Non assignée') === promo && 
+                      (c.faculty || 'Non assigné') === fac
+                    );
+
+                    if (groupCourses.length === 0) {
+                      return (
+                        <div className="text-center py-8 bg-white rounded-xl border border-slate-200 border-dashed">
+                          <BookOpen className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                          <p className="text-sm text-slate-500">Aucun cours n'est encore associé à ce groupe.</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="grid gap-3">
+                        {groupCourses.map(course => (
+                          <div key={course.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center group hover:border-blue-300 transition-colors">
+                            <div>
+                              <h4 className="font-bold text-slate-800">{course.name}</h4>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setConfirmAction({
+                                  message: 'Voulez-vous vraiment retirer ce cours de ce groupe ?',
+                                  onConfirm: async () => {
+                                    try {
+                                      await updateDoc(doc(db, 'courses', course.id), {
+                                        faculty: '',
+                                        promotion: ''
+                                      });
+                                      showToast("Succès", "Cours retiré du groupe.", "success");
+                                    } catch (error) {
+                                      console.error("Error removing course from group:", error);
+                                      showToast("Erreur", "Erreur lors du retrait du cours.", "error");
+                                    }
+                                  }
+                                });
+                              }}
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                              title="Retirer du groupe"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Formulaire d'ajout de cours */}
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-6">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">Associer un de vos cours existants</h3>
+                    <div className="flex gap-3">
+                      <select
+                        className="flex-1 px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                        onChange={async (e) => {
+                          if (!e.target.value) return;
+                          const courseId = e.target.value;
+                          const [promo, fac] = managingCoursesForGroup.split(' - ');
+                          try {
+                            await updateDoc(doc(db, 'courses', courseId), {
+                              faculty: fac === 'Non assigné' ? '' : fac,
+                              promotion: promo === 'Non assignée' ? '' : promo
+                            });
+                            e.target.value = ''; // Reset select
+                            showToast("Succès", "Cours associé au groupe.", "success");
+                          } catch (error) {
+                            console.error("Error updating course:", error);
+                            showToast("Erreur", "Erreur lors de l'association du cours.", "error");
+                          }
+                        }}
+                      >
+                        <option value="">Sélectionner un cours...</option>
+                        {courses
+                          .filter(c => (c.promotion || 'Non assignée') !== managingCoursesForGroup.split(' - ')[0] || (c.faculty || 'Non assigné') !== managingCoursesForGroup.split(' - ')[1])
+                          .map(c => (
+                            <option key={c.id} value={c.id}>{c.name} {c.promotion || c.faculty ? `(Actuellement: ${c.promotion || 'N/A'} - ${c.faculty || 'N/A'})` : ''}</option>
+                          ))
+                        }
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmAction && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 mb-2">Confirmation</h3>
+              <p className="text-slate-600 text-sm mb-6">{confirmAction.message}</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmAction(null)}
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={() => {
+                    confirmAction.onConfirm();
+                    setConfirmAction(null);
+                  }}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
+                >
+                  Confirmer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toastMessage && (
+        <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-bottom-5">
+          <div className={`rounded-xl shadow-lg border p-4 flex items-start gap-3 max-w-sm ${
+            toastMessage.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'
+          }`}>
+            {toastMessage.type === 'success' ? (
+              <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+            ) : (
+              <XCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+            )}
+            <div>
+              <h4 className="font-bold text-sm">{toastMessage.title}</h4>
+              <p className="text-xs opacity-90 mt-1">{toastMessage.message}</p>
+            </div>
+            <button 
+              onClick={() => setToastMessage(null)}
+              className="ml-auto p-1 hover:bg-black/5 rounded-lg transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}

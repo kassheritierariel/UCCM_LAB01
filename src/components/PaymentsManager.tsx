@@ -58,6 +58,13 @@ export default function PaymentsManager() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedPaymentForReceipt, setSelectedPaymentForReceipt] = useState<Payment | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{title: string, message: string, type: 'success' | 'error'} | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{message: string, onConfirm: () => void} | null>(null);
+
+  const showToast = (title: string, message: string, type: 'success' | 'error' = 'success') => {
+    setToastMessage({ title, message, type });
+    setTimeout(() => setToastMessage(null), 5000);
+  };
   
   // New Payment Form State
   const [newPayment, setNewPayment] = useState({
@@ -102,22 +109,27 @@ export default function PaymentsManager() {
   });
 
   const handleUpdateStatus = async (paymentId: string, newStatus: 'completed' | 'failed') => {
-    // In a real app, use a custom modal instead of window.confirm
-    try {
-      await updateDoc(doc(db, 'payments', paymentId), {
-        status: newStatus,
-        updatedAt: serverTimestamp()
-      });
-    } catch (error) {
-      console.error("Erreur lors de la mise à jour:", error);
-      // In a real app, show a toast notification
-    }
+    setConfirmAction({
+      message: `Êtes-vous sûr de vouloir marquer ce paiement comme ${newStatus === 'completed' ? 'payé' : 'échoué'} ?`,
+      onConfirm: async () => {
+        try {
+          await updateDoc(doc(db, 'payments', paymentId), {
+            status: newStatus,
+            updatedAt: serverTimestamp()
+          });
+          showToast("Succès", "Le statut du paiement a été mis à jour.", "success");
+        } catch (error) {
+          console.error("Erreur lors de la mise à jour:", error);
+          showToast("Erreur", "Une erreur est survenue lors de la mise à jour.", "error");
+        }
+      }
+    });
   };
 
   const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPayment.studentName || !newPayment.amount) {
-      // In a real app, show a toast notification
+      showToast("Erreur", "Veuillez remplir tous les champs obligatoires.", "error");
       return;
     }
 
@@ -149,9 +161,10 @@ export default function PaymentsManager() {
       setNewPayment({
         studentName: '', studentId: '', type: 'tuition', amount: '', paymentMethod: 'cash', reference: ''
       });
+      showToast("Succès", "Le paiement a été enregistré avec succès.", "success");
     } catch (error) {
       console.error("Erreur lors de l'ajout:", error);
-      // In a real app, show a toast notification
+      showToast("Erreur", "Une erreur est survenue lors de l'enregistrement du paiement.", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -696,6 +709,57 @@ export default function PaymentsManager() {
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmAction && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Confirmation</h3>
+                <p className="text-slate-600 mt-1">{confirmAction.message}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmAction(null)}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  confirmAction.onConfirm();
+                  setConfirmAction(null);
+                }}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Message */}
+      {toastMessage && (
+        <div className={`fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 z-50 animate-fade-in ${
+          toastMessage.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+        }`}>
+          {toastMessage.type === 'success' ? (
+            <CheckCircle className="w-5 h-5" />
+          ) : (
+            <XCircle className="w-5 h-5" />
+          )}
+          <div>
+            <p className="font-medium">{toastMessage.title}</p>
+            <p className="text-sm opacity-90">{toastMessage.message}</p>
           </div>
         </div>
       )}

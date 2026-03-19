@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Book, Video, FileText, Download, Wifi, Zap, Sparkles, Filter, ChevronRight, PlayCircle, BookOpen, Baby, Backpack, GraduationCap, Briefcase, Library, Plus, Trash2, X } from 'lucide-react';
+import { Search, Book, Video, FileText, Download, Wifi, Zap, Sparkles, Filter, ChevronRight, PlayCircle, BookOpen, Baby, Backpack, GraduationCap, Briefcase, Library, Plus, Trash2, X, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 import { collection, getDocs, addDoc, deleteDoc, doc, onSnapshot, query, where, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../AuthContext';
@@ -28,6 +28,13 @@ export default function DigitalLibrary() {
   const [newResource, setNewResource] = useState({
     title: '', author: '', level: 'universitaire', type: 'book', size: '10 MB', fileUrl: '', faculty: '', promotion: ''
   });
+  const [toastMessage, setToastMessage] = useState<{title: string, message: string, type: 'success' | 'error'} | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{message: string, onConfirm: () => void} | null>(null);
+
+  const showToast = (title: string, message: string, type: 'success' | 'error' = 'success') => {
+    setToastMessage({ title, message, type });
+    setTimeout(() => setToastMessage(null), 5000);
+  };
 
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
@@ -70,25 +77,28 @@ export default function DigitalLibrary() {
         tenantId: user.tenantId,
         createdAt: serverTimestamp()
       });
-      alert('Ressource ajoutée avec succès');
+      showToast('Succès', 'Ressource ajoutée avec succès', 'success');
       setIsAdding(false);
       setNewResource({ title: '', author: '', level: 'universitaire', type: 'book', size: '10 MB', fileUrl: '', faculty: '', promotion: '' });
     } catch (error) {
       console.error('Error adding resource:', error);
-      alert('Erreur lors de l\'ajout de la ressource');
+      showToast('Erreur', 'Erreur lors de l\'ajout de la ressource', 'error');
     }
   };
 
   const handleDeleteResource = async (id: string) => {
-    if (window.confirm('Êtes-vous sûr de vouloir supprimer cette ressource ?')) {
-      try {
-        await deleteDoc(doc(db, 'library_resources', id));
-        alert('Ressource supprimée');
-      } catch (error) {
-        console.error('Error deleting resource:', error);
-        alert('Erreur lors de la suppression');
+    setConfirmAction({
+      message: 'Êtes-vous sûr de vouloir supprimer cette ressource ?',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'library_resources', id));
+          showToast('Succès', 'Ressource supprimée', 'success');
+        } catch (error) {
+          console.error('Error deleting resource:', error);
+          showToast('Erreur', 'Erreur lors de la suppression', 'error');
+        }
       }
-    }
+    });
   };
 
   if (user?.role === 'student' && !user?.libraryAccess) {
@@ -402,6 +412,57 @@ export default function DigitalLibrary() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmAction && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Confirmation</h3>
+                <p className="text-slate-600 mt-1">{confirmAction.message}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmAction(null)}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  confirmAction.onConfirm();
+                  setConfirmAction(null);
+                }}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Message */}
+      {toastMessage && (
+        <div className={`fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 z-50 animate-fade-in ${
+          toastMessage.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+        }`}>
+          {toastMessage.type === 'success' ? (
+            <CheckCircle className="w-5 h-5" />
+          ) : (
+            <XCircle className="w-5 h-5" />
+          )}
+          <div>
+            <p className="font-medium">{toastMessage.title}</p>
+            <p className="text-sm opacity-90">{toastMessage.message}</p>
           </div>
         </div>
       )}

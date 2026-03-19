@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
 import { collection, query, onSnapshot, orderBy, doc, updateDoc, where, deleteField, getDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { 
-  Search, Filter, Edit2, GraduationCap, X, Mail, Calendar, ChevronUp, ChevronDown, Phone, MapPin, Hash, Building2, BookOpen, QrCode, Printer, FileBadge, Download, User
+  Search, Filter, Edit2, GraduationCap, X, Mail, Calendar, ChevronUp, ChevronDown, Phone, MapPin, Hash, Building2, BookOpen, QrCode, Printer, FileBadge, Download, User, AlertCircle
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -59,6 +59,7 @@ export default function StudentManager() {
   const [courses, setCourses] = useState<any[]>([]);
   const [professors, setProfessors] = useState<any[]>([]);
   const [managingCoursesForGroup, setManagingCoursesForGroup] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{message: string, onConfirm: () => void} | null>(null);
   const [newCourseForm, setNewCourseForm] = useState({ name: '', professorId: '' });
 
   const isMatriculeValid = (matricule?: string) => {
@@ -1137,17 +1138,20 @@ export default function StudentManager() {
                               </div>
                               {(user?.uid === course.professorId || user?.role === 'admin' || user?.role === 'super_admin') && (
                                 <button
-                                  onClick={async () => {
-                                    if (window.confirm('Voulez-vous vraiment retirer ce cours de ce groupe ?')) {
-                                      try {
-                                        await updateDoc(doc(db, 'courses', course.id), {
-                                          faculty: '',
-                                          promotion: ''
-                                        });
-                                      } catch (error) {
-                                        console.error("Error removing course from group:", error);
+                                  onClick={() => {
+                                    setConfirmAction({
+                                      message: 'Voulez-vous vraiment retirer ce cours de ce groupe ?',
+                                      onConfirm: async () => {
+                                        try {
+                                          await updateDoc(doc(db, 'courses', course.id), {
+                                            faculty: '',
+                                            promotion: ''
+                                          });
+                                        } catch (error) {
+                                          console.error("Error removing course from group:", error);
+                                        }
                                       }
-                                    }
+                                    });
                                   }}
                                   className="p-2 text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
                                   title="Retirer du groupe"
@@ -1263,6 +1267,37 @@ export default function StudentManager() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmAction && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 mb-2">Confirmation</h3>
+              <p className="text-slate-600 text-sm mb-6">{confirmAction.message}</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmAction(null)}
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={() => {
+                    confirmAction.onConfirm();
+                    setConfirmAction(null);
+                  }}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
+                >
+                  Confirmer
+                </button>
               </div>
             </div>
           </div>

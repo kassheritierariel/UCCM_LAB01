@@ -3,7 +3,7 @@ import { db } from '../firebase';
 import { collection, query, onSnapshot, orderBy, doc, updateDoc, addDoc, serverTimestamp, getDocs, where } from 'firebase/firestore';
 import { 
   Building2, Search, Filter, Plus, Edit2, ShieldCheck, 
-  Activity, Users, CreditCard, X, CheckCircle, XCircle, Download
+  Activity, Users, CreditCard, X, CheckCircle, XCircle, Download, AlertCircle
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -13,10 +13,12 @@ interface Institution {
   name: string;
   domain: string;
   plan: 'basic' | 'pro' | 'enterprise';
-  status: 'active' | 'suspended' | 'trial';
+  status: 'active' | 'suspended' | 'trial' | 'pending';
   contactEmail: string;
   createdAt: any;
+  trialEndDate?: any;
   usersCount?: number;
+  features?: string[];
   settings?: {
     address?: string;
     phone?: string;
@@ -24,6 +26,15 @@ interface Institution {
     primaryColor?: string;
   };
 }
+
+const AVAILABLE_FEATURES = [
+  { id: 'students', label: 'Gestion des Étudiants' },
+  { id: 'documents', label: 'Documents & TFC' },
+  { id: 'payments', label: 'Gestion des Paiements' },
+  { id: 'library', label: 'Bibliothèque Numérique' },
+  { id: 'ai', label: 'Outils IA' },
+  { id: 'course_documents', label: 'Documents de Cours' }
+];
 
 const planConfig = {
   basic: { label: 'Basic', color: 'text-slate-600', bg: 'bg-slate-100', border: 'border-slate-200' },
@@ -35,6 +46,7 @@ const statusConfig = {
   active: { label: 'Actif', icon: CheckCircle, color: 'text-emerald-700', bg: 'bg-emerald-100', border: 'border-emerald-200' },
   suspended: { label: 'Suspendu', icon: XCircle, color: 'text-rose-700', bg: 'bg-rose-100', border: 'border-rose-200' },
   trial: { label: 'Essai', icon: Activity, color: 'text-amber-700', bg: 'bg-amber-100', border: 'border-amber-200' },
+  pending: { label: 'En attente', icon: Activity, color: 'text-orange-700', bg: 'bg-orange-100', border: 'border-orange-200' },
 };
 
 export default function InstitutionsManager() {
@@ -46,6 +58,7 @@ export default function InstitutionsManager() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingInst, setEditingInst] = useState<Institution | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{message: string, onConfirm: () => void} | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -55,7 +68,9 @@ export default function InstitutionsManager() {
     contactEmail: '',
     address: '',
     phone: '',
-    logoUrl: ''
+    logoUrl: '',
+    trialDays: 14,
+    features: ['students', 'documents', 'payments', 'library', 'ai', 'course_documents'] as string[]
   });
 
   useEffect(() => {
@@ -97,18 +112,27 @@ export default function InstitutionsManager() {
 
     setIsSubmitting(true);
     try {
-      const institutionData = {
+      const institutionData: any = {
         name: formData.name,
         domain: formData.domain,
         plan: formData.plan,
         status: formData.status,
         contactEmail: formData.contactEmail,
+        features: formData.features,
         settings: {
           address: formData.address,
           phone: formData.phone,
           logoUrl: formData.logoUrl,
         }
       };
+
+      if (formData.status === 'trial') {
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + formData.trialDays);
+        institutionData.trialEndDate = endDate;
+      } else {
+        institutionData.trialEndDate = null;
+      }
 
       let instId = editingInst?.id;
 
@@ -159,6 +183,14 @@ export default function InstitutionsManager() {
 
   const openEditModal = (inst: Institution) => {
     setEditingInst(inst);
+    
+    let trialDays = 14;
+    if (inst.status === 'trial' && inst.trialEndDate) {
+      const end = inst.trialEndDate.toDate ? inst.trialEndDate.toDate() : new Date(inst.trialEndDate);
+      const diffTime = Math.abs(end.getTime() - new Date().getTime());
+      trialDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    }
+
     setFormData({
       name: inst.name,
       domain: inst.domain,
@@ -167,7 +199,9 @@ export default function InstitutionsManager() {
       contactEmail: inst.contactEmail || '',
       address: inst.settings?.address || '',
       phone: inst.settings?.phone || '',
-      logoUrl: inst.settings?.logoUrl || ''
+      logoUrl: inst.settings?.logoUrl || '',
+      trialDays: trialDays,
+      features: inst.features || ['students', 'documents', 'payments', 'library', 'ai', 'course_documents']
     });
     setIsAddModalOpen(true);
   };
@@ -175,7 +209,7 @@ export default function InstitutionsManager() {
   const closeModal = () => {
     setIsAddModalOpen(false);
     setEditingInst(null);
-    setFormData({ name: '', domain: '', plan: 'pro', status: 'active', contactEmail: '', address: '', phone: '', logoUrl: '' });
+    setFormData({ name: '', domain: '', plan: 'pro', status: 'active', contactEmail: '', address: '', phone: '', logoUrl: '', trialDays: 14, features: ['students', 'documents', 'payments', 'library', 'ai', 'course_documents'] });
   };
 
   const handleExportCSV = () => {
@@ -328,10 +362,17 @@ export default function InstitutionsManager() {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${statusInfo.bg} ${statusInfo.color} ${statusInfo.border}`}>
-                          <StatusIcon className="w-3.5 h-3.5" />
-                          {statusInfo.label}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border w-fit ${statusInfo.bg} ${statusInfo.color} ${statusInfo.border}`}>
+                            <StatusIcon className="w-3.5 h-3.5" />
+                            {statusInfo.label}
+                          </span>
+                          {inst.status === 'trial' && inst.trialEndDate && (
+                            <span className="text-[10px] text-slate-500">
+                              Jusqu'au {inst.trialEndDate.toDate ? format(inst.trialEndDate.toDate(), 'dd/MM/yyyy') : format(new Date(inst.trialEndDate), 'dd/MM/yyyy')}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
@@ -343,13 +384,57 @@ export default function InstitutionsManager() {
                         {inst.createdAt ? format(inst.createdAt.toDate(), 'dd MMM yyyy', { locale: fr }) : 'N/A'}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button 
-                          onClick={() => openEditModal(inst)}
-                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                          title="Modifier"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          {inst.status === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setConfirmAction({
+                                    message: 'Valider cet établissement avec une période d\'essai de 14 jours ?',
+                                    onConfirm: async () => {
+                                      const endDate = new Date();
+                                      endDate.setDate(endDate.getDate() + 14);
+                                      await updateDoc(doc(db, 'institutions', inst.id), {
+                                        status: 'trial',
+                                        trialEndDate: endDate,
+                                        updatedAt: serverTimestamp()
+                                      });
+                                    }
+                                  });
+                                }}
+                                className="px-3 py-1.5 text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-lg transition-colors"
+                                title="Valider avec essai (14j)"
+                              >
+                                Valider (Essai)
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setConfirmAction({
+                                    message: 'Activer directement cet établissement ?',
+                                    onConfirm: async () => {
+                                      await updateDoc(doc(db, 'institutions', inst.id), {
+                                        status: 'active',
+                                        trialEndDate: null,
+                                        updatedAt: serverTimestamp()
+                                      });
+                                    }
+                                  });
+                                }}
+                                className="px-3 py-1.5 text-xs font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded-lg transition-colors"
+                                title="Activer directement"
+                              >
+                                Activer
+                              </button>
+                            </>
+                          )}
+                          <button 
+                            onClick={() => openEditModal(inst)}
+                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                            title="Modifier"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -470,8 +555,45 @@ export default function InstitutionsManager() {
                   >
                     <option value="active">Actif</option>
                     <option value="trial">En essai</option>
+                    <option value="pending">En attente</option>
                     <option value="suspended">Suspendu</option>
                   </select>
+                </div>
+              </div>
+
+              {formData.status === 'trial' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Durée de l'essai (jours)</label>
+                  <input 
+                    type="number" 
+                    min="1"
+                    value={formData.trialDays}
+                    onChange={(e) => setFormData({...formData, trialDays: parseInt(e.target.value) || 14})}
+                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Fonctionnalités activées</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  {AVAILABLE_FEATURES.map(feature => (
+                    <label key={feature.id} className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.features.includes(feature.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setFormData({ ...formData, features: [...formData.features, feature.id] });
+                          } else {
+                            setFormData({ ...formData, features: formData.features.filter(f => f !== feature.id) });
+                          }
+                        }}
+                        className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm font-medium text-slate-700">{feature.label}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
 
@@ -496,6 +618,37 @@ export default function InstitutionsManager() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {confirmAction && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 mb-2">Confirmation</h3>
+              <p className="text-slate-600 text-sm mb-6">{confirmAction.message}</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmAction(null)}
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={() => {
+                    confirmAction.onConfirm();
+                    setConfirmAction(null);
+                  }}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
+                >
+                  Confirmer
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

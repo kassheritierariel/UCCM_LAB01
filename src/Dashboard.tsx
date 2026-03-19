@@ -204,15 +204,22 @@ export default function Dashboard() {
     { id: 'overview', name: "Vue d'ensemble", icon: LayoutDashboard, roles: ['admin', 'cashier', 'chef', 'super_admin'], group: 'Général' },
     { id: 'institutions', name: 'Institutions SaaS', icon: Building2, roles: ['super_admin'], group: 'Gestion' },
     { id: 'users', name: 'Utilisateurs', icon: Users, roles: ['admin', 'super_admin'], group: 'Gestion' },
-    { id: 'students', name: 'Étudiants', icon: GraduationCap, roles: ['admin', 'chef', 'super_admin'], group: 'Gestion' },
-    { id: 'documents', name: 'Documents & TFC', icon: FileText, roles: ['admin', 'chef', 'super_admin'], group: 'Gestion' },
-    { id: 'payments', name: 'Paiements', icon: CircleDollarSign, roles: ['admin', 'cashier', 'super_admin'], group: 'Gestion' },
-    { id: 'library', name: 'Bibliothèque Numérique', icon: Library, roles: ['admin', 'chef', 'super_admin', 'student', 'professor'], group: 'Outils' },
-    { id: 'ai', name: 'Outils IA', icon: Sparkles, roles: ['admin', 'super_admin', 'chef', 'cashier'], group: 'Outils' },
+    { id: 'students', name: 'Étudiants', icon: GraduationCap, roles: ['admin', 'chef', 'super_admin'], group: 'Gestion', feature: 'students' },
+    { id: 'documents', name: 'Documents & TFC', icon: FileText, roles: ['admin', 'chef', 'super_admin'], group: 'Gestion', feature: 'documents' },
+    { id: 'payments', name: 'Paiements', icon: CircleDollarSign, roles: ['admin', 'cashier', 'super_admin'], group: 'Gestion', feature: 'payments' },
+    { id: 'library', name: 'Bibliothèque Numérique', icon: Library, roles: ['admin', 'chef', 'super_admin', 'student', 'professor'], group: 'Outils', feature: 'library' },
+    { id: 'ai', name: 'Outils IA', icon: Sparkles, roles: ['admin', 'super_admin', 'chef', 'cashier'], group: 'Outils', feature: 'ai' },
     { id: 'settings', name: 'Paramètres', icon: Settings, roles: ['admin', 'super_admin'], group: 'Outils' },
   ];
 
-  const allowedNav = navigation.filter(item => item.roles.includes(user?.role || ''));
+  const allowedNav = navigation.filter(item => {
+    if (!item.roles.includes(user?.role || '')) return false;
+    if (user?.role === 'super_admin') return true;
+    if (item.feature && tenantSettings?.features) {
+      return tenantSettings.features.includes(item.feature);
+    }
+    return true;
+  });
 
   // Group navigation items
   const groupedNav = allowedNav.reduce((acc, item) => {

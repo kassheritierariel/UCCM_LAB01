@@ -8,6 +8,7 @@ import ProfessorPortal from './ProfessorPortal';
 import LandingPage from './LandingPage';
 import WhatsAppButton from './components/WhatsAppButton';
 import OfflineIndicator from './components/OfflineIndicator';
+import RegisterInstitution from './RegisterInstitution';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
   const { user, loading } = useAuth();
@@ -61,6 +62,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/register-institution" element={<RegisterInstitution />} />
           <Route path="/app" element={<RoleBasedRedirect />} />
           <Route 
             path="/dashboard" 

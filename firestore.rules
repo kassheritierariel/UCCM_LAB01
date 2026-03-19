@@ -111,31 +111,35 @@ service cloud.firestore {
     }
 
     function isSuperAdmin() {
-      return (isAuthenticated() && request.auth.token != null && 'email' in request.auth.token && request.auth.token.email == "kassheritier@telgroups.org") || hasRole('super_admin');
+      return isAuthenticated() && (
+        ('email' in request.auth.token && request.auth.token.email == "kassheritier@telgroups.org") ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin')
+      );
     }
 
     function isAdmin() {
-      return hasRole('admin') || isSuperAdmin();
+      return isSuperAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
     }
 
     function isCashier() {
-      return hasRole('cashier') || isSuperAdmin();
+      return isSuperAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'cashier');
     }
 
     function isChef() {
-      return hasRole('chef') || isSuperAdmin();
+      return isSuperAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'chef');
     }
 
     function isProfessor() {
-      return hasRole('professor') || isSuperAdmin();
+      return isSuperAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'professor');
     }
 
     function isStudent() {
-      return hasRole('student') || isSuperAdmin();
+      return isSuperAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student');
     }
 
     function isSameTenant(data) {
-      return isSuperAdmin() || (isAuthenticated() && userExists() && data.tenantId == getUserData().tenantId);
+      return isSuperAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && data.tenantId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId);
     }
 
     function hasRequiredFields(fields) {
@@ -275,7 +279,9 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
-      allow read: if isAuthenticated() && (isOwner(userId) || isSameTenant(resource.data));
+      allow read: if isSuperAdmin();
+      allow read: if isAuthenticated() && isOwner(userId);
+      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId;
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
         (isOwner(userId) && request.resource.data.role == 'student') || 
         (isAdmin() && (isSuperAdmin() || request.resource.data.role != 'super_admin')) ||
@@ -291,11 +297,9 @@ service cloud.firestore {
     }
 
     match /institutions/{institutionId} {
-      allow read: if isAuthenticated() && (
-        isSuperAdmin() || 
-        (userExists() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == institutionId) ||
-        ('email' in request.auth.token && resource != null && 'contactEmail' in resource.data && resource.data.contactEmail == request.auth.token.email)
-      );
+      allow read: if isSuperAdmin();
+      allow read: if isAuthenticated() && userExists() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == institutionId;
+      allow read: if isAuthenticated() && 'email' in request.auth.token && resource != null && 'contactEmail' in resource.data && resource.data.contactEmail == request.auth.token.email;
       allow create: if isSuperAdmin() && isValidInstitution(request.resource.data);
       allow update: if isAuthenticated() && isValidInstitution(request.resource.data) && areImmutableFieldsUnchanged(['createdAt']) && (
         isSuperAdmin() || 
@@ -305,7 +309,8 @@ service cloud.firestore {
     }
 
     match /documents/{docId} {
-      allow read: if isAuthenticated() && isSameTenant(resource.data);
+      allow read: if isSuperAdmin();
+      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId;
       allow create: if isAuthenticated() && isValidDocument(request.resource.data) && isSameTenant(request.resource.data) && (
         (request.resource.data.authorId == request.auth.uid) || isAdmin()
       );
@@ -317,7 +322,8 @@ service cloud.firestore {
     }
 
     match /payments/{paymentId} {
-      allow read: if isAuthenticated() && isSameTenant(resource.data) && (resource.data.studentId == request.auth.uid || isAdmin() || isCashier());
+      allow read: if isSuperAdmin();
+      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId && (resource.data.studentId == request.auth.uid || isAdmin() || isCashier());
       allow create: if isAuthenticated() && isValidPayment(request.resource.data) && isSameTenant(request.resource.data) && (
         request.resource.data.studentId == request.auth.uid || isAdmin()
       );
@@ -328,28 +334,32 @@ service cloud.firestore {
     }
 
     match /courses/{courseId} {
-      allow read: if isAuthenticated() && isSameTenant(resource.data);
+      allow read: if isSuperAdmin();
+      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId;
       allow create: if isAuthenticated() && isValidCourse(request.resource.data) && isSameTenant(request.resource.data) && (isAdmin() || isProfessor());
       allow update: if isAuthenticated() && isValidCourse(request.resource.data) && isSameTenant(resource.data) && (isAdmin() || (isProfessor() && resource.data.professorId == request.auth.uid));
       allow delete: if isAuthenticated() && isSameTenant(resource.data) && (isAdmin() || (isProfessor() && resource.data.professorId == request.auth.uid));
     }
 
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated() && isSameTenant(resource.data) && (resource.data.userId == request.auth.uid || isAdmin() || isChef() || isCashier());
+      allow read: if isSuperAdmin();
+      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId && (resource.data.userId == request.auth.uid || isAdmin() || isChef() || isCashier());
       allow create: if isAuthenticated() && isValidNotification(request.resource.data) && isSameTenant(request.resource.data);
       allow update: if isAuthenticated() && isValidNotification(request.resource.data) && isSameTenant(resource.data) && (resource.data.userId == request.auth.uid || isAdmin());
       allow delete: if isAuthenticated() && isSameTenant(resource.data) && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     match /messages/{messageId} {
-      allow read: if isAuthenticated() && isSameTenant(resource.data);
+      allow read: if isSuperAdmin();
+      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId;
       allow create: if isAuthenticated() && isValidMessage(request.resource.data) && isSameTenant(request.resource.data) && request.resource.data.senderId == request.auth.uid;
       allow update: if isAuthenticated() && isValidMessage(request.resource.data) && isSameTenant(resource.data) && (resource.data.senderId == request.auth.uid || isAdmin());
       allow delete: if isAuthenticated() && isSameTenant(resource.data) && (resource.data.senderId == request.auth.uid || isAdmin());
     }
 
     match /library_resources/{resourceId} {
-      allow read: if isAuthenticated() && isSameTenant(resource.data);
+      allow read: if isSuperAdmin();
+      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId;
       allow create: if isAuthenticated() && isValidLibraryResource(request.resource.data) && isSameTenant(request.resource.data) && isAdmin();
       allow update: if isAuthenticated() && isValidLibraryResource(request.resource.data) && isSameTenant(resource.data) && isAdmin();
       allow delete: if isAuthenticated() && isSameTenant(resource.data) && isAdmin();

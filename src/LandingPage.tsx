@@ -140,7 +140,7 @@ export default function LandingPage() {
             </motion.p>
             
             <motion.div variants={itemVariants} className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-              <Link to="/login" className="w-full sm:w-auto px-8 py-4 bg-slate-900 text-white rounded-full font-bold text-base hover:bg-blue-600 transition-all flex items-center justify-center gap-2 shadow-xl hover:shadow-blue-600/30 hover:-translate-y-1">
+              <Link to="/register-institution" className="w-full sm:w-auto px-8 py-4 bg-slate-900 text-white rounded-full font-bold text-base hover:bg-blue-600 transition-all flex items-center justify-center gap-2 shadow-xl hover:shadow-blue-600/30 hover:-translate-y-1">
                 Créer votre espace
                 <ArrowRight className="w-5 h-5" />
               </Link>

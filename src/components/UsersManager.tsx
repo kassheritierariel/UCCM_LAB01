@@ -4,7 +4,7 @@ import { collection, query, onSnapshot, orderBy, doc, updateDoc, deleteDoc, wher
 import { 
   Search, Filter, Edit2, Trash2, ShieldCheck, GraduationCap, 
   Briefcase, Award, Calculator, X, Plus, AlertCircle, MoreHorizontal,
-  Mail, Calendar, ChevronUp, ChevronDown, FileBadge, Printer, Building2, Download
+  Mail, Calendar, ChevronUp, ChevronDown, FileBadge, Printer, Building2, Download, CheckCircle, XCircle
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -44,6 +44,13 @@ export default function UsersManager() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [isAddInfoOpen, setIsAddInfoOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{title: string, message: string, type: 'success' | 'error'} | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{message: string, onConfirm: () => void} | null>(null);
+
+  const showToast = (title: string, message: string, type: 'success' | 'error' = 'success') => {
+    setToastMessage({ title, message, type });
+    setTimeout(() => setToastMessage(null), 5000);
+  };
   
   const [generatingIdFor, setGeneratingIdFor] = useState<User | null>(null);
   const [institutionData, setInstitutionData] = useState<{name: string, logoUrl: string, address: string, primaryColor: string} | null>(null);
@@ -152,13 +159,18 @@ export default function UsersManager() {
   };
 
   const handleDelete = async (userId: string, userName: string) => {
-    // In a real app, use a custom modal instead of window.confirm
-    try {
-      await deleteDoc(doc(db, 'users', userId));
-    } catch (error) {
-      console.error("Erreur lors de la suppression:", error);
-      // In a real app, show a toast notification
-    }
+    setConfirmAction({
+      message: `Êtes-vous sûr de vouloir supprimer l'utilisateur ${userName} ?`,
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'users', userId));
+          showToast("Succès", "L'utilisateur a été supprimé.", "success");
+        } catch (error) {
+          console.error("Erreur lors de la suppression:", error);
+          showToast("Erreur", "Une erreur est survenue lors de la suppression.", "error");
+        }
+      }
+    });
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -174,9 +186,10 @@ export default function UsersManager() {
         promotion: editingUser.promotion || null,
       });
       setEditingUser(null);
+      showToast("Succès", "L'utilisateur a été mis à jour.", "success");
     } catch (error) {
       console.error("Erreur lors de la mise à jour:", error);
-      // In a real app, show a toast notification
+      showToast("Erreur", "Une erreur est survenue lors de la mise à jour.", "error");
     } finally {
       setIsSaving(false);
     }
@@ -699,6 +712,57 @@ export default function UsersManager() {
                 Imprimer
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmAction && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Confirmation</h3>
+                <p className="text-slate-600 mt-1">{confirmAction.message}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmAction(null)}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  confirmAction.onConfirm();
+                  setConfirmAction(null);
+                }}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Message */}
+      {toastMessage && (
+        <div className={`fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 z-50 animate-fade-in ${
+          toastMessage.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+        }`}>
+          {toastMessage.type === 'success' ? (
+            <CheckCircle className="w-5 h-5" />
+          ) : (
+            <XCircle className="w-5 h-5" />
+          )}
+          <div>
+            <p className="font-medium">{toastMessage.title}</p>
+            <p className="text-sm opacity-90">{toastMessage.message}</p>
           </div>
         </div>
       )}
