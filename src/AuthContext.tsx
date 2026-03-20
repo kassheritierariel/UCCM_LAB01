@@ -7,7 +7,7 @@ interface UserData {
   uid: string;
   name: string;
   email: string;
-  role: 'student' | 'professor' | 'admin' | 'cashier' | 'chef' | 'super_admin';
+  role: string;
   faculty?: string;
   promotion?: string;
   tenantId?: string; // For SaaS multi-tenancy
@@ -21,7 +21,6 @@ interface AuthContextType {
   loading: boolean;
   signIn: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
-  signInAsDemo: (role: UserData['role']) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -30,7 +29,6 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   signIn: async () => {},
   signInWithEmail: async () => {},
-  signInAsDemo: async () => {},
   signOut: async () => {},
 });
 
@@ -53,9 +51,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setUser(userDoc.data() as UserData);
               setLoading(false);
             } else {
-              // Create new user
               const isSuperAdminEmail = firebaseUser.email === 'kassheritier@telgroups.org';
-              
+
+              // Create new user
               let role = 'student';
               let tenantId = 'tenant_demo_1';
               let tenantName = 'Université Démo UCCM';
@@ -147,12 +145,75 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signInWithEmail = async (email: string, password: string) => {
     try {
-      // Special case for super admin
+      // Special cases for demo accounts
+      const demoAccounts: Record<string, any> = {
+        'superadmin@demo.com': {
+          password: 'superadmin123',
+          data: {
+            name: 'Super Admin Démo',
+            email: 'superadmin@demo.com',
+            role: 'super_admin',
+            tenantId: 'SYSTEM',
+            tenantName: 'Plateforme SaaS (Démo)',
+          }
+        },
+        'admin@demo.com': {
+          password: 'admin123',
+          data: {
+            name: 'Admin Démo',
+            email: 'admin@demo.com',
+            role: 'admin',
+            tenantId: 'tenant_demo_1',
+            tenantName: 'Université Démo UCCM',
+          }
+        },
+        'professor@demo.com': {
+          password: 'professor123',
+          data: {
+            name: 'Prof. Jean Dupont',
+            email: 'professor@demo.com',
+            role: 'professor',
+            tenantId: 'tenant_demo_1',
+            tenantName: 'Université Démo UCCM',
+          }
+        },
+        'student@demo.com': {
+          password: 'student123',
+          data: {
+            name: 'Alice Étudiante',
+            email: 'student@demo.com',
+            role: 'student',
+            tenantId: 'tenant_demo_1',
+            tenantName: 'Université Démo UCCM',
+          }
+        },
+        'cashier@demo.com': {
+          password: 'cashier123',
+          data: {
+            name: 'Marc Caissier',
+            email: 'cashier@demo.com',
+            role: 'cashier',
+            tenantId: 'tenant_demo_1',
+            tenantName: 'Université Démo UCCM',
+          }
+        },
+        'chef@demo.com': {
+          password: 'chef123',
+          data: {
+            name: 'Dr. Robert Chef',
+            email: 'chef@demo.com',
+            role: 'chef',
+            tenantId: 'tenant_demo_1',
+            tenantName: 'Université Démo UCCM',
+          }
+        }
+      };
+
+      // Handle Owner account (not a demo, but special handling)
       if (email === 'kassheritier@telgroups.org' && password === 'Ariel@2024') {
         const userCred = await signInAnonymously(auth);
         const userDocRef = doc(db, 'users', userCred.user.uid);
-        
-        const superAdminUser = {
+        const userData = {
           uid: userCred.user.uid,
           name: 'Kass Heritier',
           email: 'kassheritier@telgroups.org',
@@ -161,9 +222,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tenantName: 'Plateforme SaaS',
           createdAt: serverTimestamp(),
         };
-        
-        await setDoc(userDocRef, superAdminUser);
-        setUser(superAdminUser as unknown as UserData);
+        await setDoc(userDocRef, userData);
+        setUser(userData as unknown as UserData);
+        return;
+      }
+
+      // Handle Demo accounts
+      if (demoAccounts[email] && demoAccounts[email].password === password) {
+        const userCred = await signInAnonymously(auth);
+        const userDocRef = doc(db, 'users', userCred.user.uid);
+        const userData = {
+          uid: userCred.user.uid,
+          ...demoAccounts[email].data,
+          createdAt: serverTimestamp(),
+        };
+        await setDoc(userDocRef, userData);
+        setUser(userData as unknown as UserData);
         return;
       }
 
@@ -171,45 +245,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error: any) {
       console.error("Error signing in with email", error);
       throw error;
-    }
-  };
-
-  const signInAsDemo = async (role: UserData['role']) => {
-    try {
-      const userCred = await signInAnonymously(auth);
-      const userDocRef = doc(db, 'users', userCred.user.uid);
-      
-      const roleNames = {
-        student: 'Étudiant',
-        professor: 'Professeur',
-        admin: 'Administrateur',
-        cashier: 'Caissier',
-        chef: 'Chef de Département',
-        super_admin: 'Super Admin SaaS'
-      };
-
-      const demoUser = {
-        uid: userCred.user.uid,
-        name: `Démo ${roleNames[role]}`,
-        email: `demo.${role}@saas.edu`,
-        role: role,
-        tenantId: role === 'super_admin' ? 'SYSTEM' : 'tenant_demo_1',
-        tenantName: role === 'super_admin' ? 'Plateforme SaaS' : 'Université Démo UCCM',
-        createdAt: serverTimestamp(),
-      };
-      
-      await setDoc(userDocRef, demoUser);
-      setUser(demoUser as unknown as UserData);
-    } catch (error: any) {
-      console.error("Error signing in as demo", error);
-      if (error.code === 'auth/operation-not-allowed') {
-        console.error("L'authentification anonyme n'est pas activée. Veuillez l'activer dans la console Firebase (Authentication > Sign-in method > Anonymous).");
-      } else if (error.code === 'auth/admin-restricted-operation') {
-        console.error("Erreur de permission Firebase. Pour utiliser le mode démo, vous devez :\n\n1. Activer l'authentification Anonyme (Authentication > Sign-in method)\n2. Activer la création de compte (Authentication > Settings > User Actions > Cochez 'Enable create (sign-up)')");
-      } else {
-        console.error("Erreur lors de la connexion de démonstration : " + error.message);
-      }
-      throw error; // Let the caller handle it
     }
   };
 
@@ -222,7 +257,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signInWithEmail, signInAsDemo, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signInWithEmail, signOut }}>
       {children}
     </AuthContext.Provider>
   );

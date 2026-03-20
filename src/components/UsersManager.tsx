@@ -1,37 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, query, onSnapshot, orderBy, doc, updateDoc, deleteDoc, where, getDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, doc, updateDoc, deleteDoc, where, getDoc, limit, addDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { 
   Search, Filter, Edit2, Trash2, ShieldCheck, GraduationCap, 
   Briefcase, Award, Calculator, X, Plus, AlertCircle, MoreHorizontal,
-  Mail, Calendar, ChevronUp, ChevronDown, FileBadge, Printer, Building2, Download, CheckCircle, XCircle
+  Mail, Calendar, ChevronUp, ChevronDown, FileBadge, Printer, Building2, Download, CheckCircle, XCircle,
+  User as UserIcon
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '../AuthContext';
 import { QRCodeSVG } from 'qrcode.react';
+import { getRoleInfo as getRoleInfoFromUtils, roleConfig } from '../utils/roleUtils';
+import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
+import Modal from './Modal';
 
 interface User {
   id: string;
   uid: string;
   name: string;
   email: string;
-  role: 'student' | 'professor' | 'admin' | 'cashier' | 'chef' | 'super_admin';
+  role: string;
   faculty?: string;
   promotion?: string;
   matricule?: string;
   tenantId?: string;
   createdAt: any;
 }
-
-const roleConfig = {
-  super_admin: { label: 'Super Admin', icon: ShieldCheck, color: 'text-indigo-700', bg: 'bg-indigo-100', border: 'border-indigo-200' },
-  admin: { label: 'Administrateur', icon: ShieldCheck, color: 'text-purple-700', bg: 'bg-purple-100', border: 'border-purple-200' },
-  student: { label: 'Étudiant', icon: GraduationCap, color: 'text-blue-700', bg: 'bg-blue-100', border: 'border-blue-200' },
-  professor: { label: 'Professeur', icon: Briefcase, color: 'text-emerald-700', bg: 'bg-emerald-100', border: 'border-emerald-200' },
-  cashier: { label: 'Caissier', icon: Calculator, color: 'text-amber-700', bg: 'bg-amber-100', border: 'border-amber-200' },
-  chef: { label: 'Chef de Dép.', icon: Award, color: 'text-rose-700', bg: 'bg-rose-100', border: 'border-rose-200' },
-};
 
 export default function UsersManager() {
   const { user } = useAuth();
@@ -42,7 +37,15 @@ export default function UsersManager() {
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
   
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [isAddInfoOpen, setIsAddInfoOpen] = useState(false);
+  const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
+  const [newUserForm, setNewUserForm] = useState({
+    name: '',
+    email: '',
+    role: 'student',
+    faculty: '',
+    promotion: '',
+    matricule: ''
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState<{title: string, message: string, type: 'success' | 'error'} | null>(null);
   const [confirmAction, setConfirmAction] = useState<{message: string, onConfirm: () => void} | null>(null);
@@ -53,7 +56,13 @@ export default function UsersManager() {
   };
   
   const [generatingIdFor, setGeneratingIdFor] = useState<User | null>(null);
-  const [institutionData, setInstitutionData] = useState<{name: string, logoUrl: string, address: string, primaryColor: string} | null>(null);
+  const [institutionData, setInstitutionData] = useState<{name: string, logoUrl: string, address: string, primaryColor: string, customRoles: any[]}>({
+    name: 'Université',
+    logoUrl: '',
+    address: 'Adresse non définie',
+    primaryColor: '#2563eb',
+    customRoles: []
+  });
 
   useEffect(() => {
     if (!user?.tenantId || user.tenantId === 'SYSTEM') return;
@@ -68,7 +77,8 @@ export default function UsersManager() {
             name: data.name || 'Université',
             logoUrl: data.settings?.logoUrl || '',
             address: data.settings?.address || 'Adresse non définie',
-            primaryColor: data.settings?.primaryColor || '#2563eb'
+            primaryColor: data.settings?.primaryColor || '#2563eb',
+            customRoles: data.settings?.customRoles || []
           });
         }
       } catch (error) {
@@ -79,14 +89,18 @@ export default function UsersManager() {
     fetchInstitution();
   }, [user]);
 
+  const getRoleInfo = (roleId: string) => {
+    return getRoleInfoFromUtils(roleId, institutionData.customRoles);
+  };
+
   useEffect(() => {
     if (!user) return;
 
     let q;
     if (user.role === 'super_admin') {
-      q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+      q = query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100));
     } else {
-      q = query(collection(db, 'users'), where('tenantId', '==', user.tenantId), orderBy('createdAt', 'desc'));
+      q = query(collection(db, 'users'), where('tenantId', '==', user.tenantId), orderBy('createdAt', 'desc'), limit(100));
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -97,7 +111,7 @@ export default function UsersManager() {
       setUsers(usersData);
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching users:", error);
+      handleFirestoreError(error, OperationType.GET, 'users');
       setLoading(false);
     });
     return () => unsubscribe();
@@ -109,7 +123,7 @@ export default function UsersManager() {
                           u.email?.toLowerCase().includes(searchLower) ||
                           u.matricule?.toLowerCase().includes(searchLower) ||
                           (u as any).studentId?.toLowerCase().includes(searchLower) ||
-                          roleConfig[u.role]?.label.toLowerCase().includes(searchLower);
+                          getRoleInfo(u.role).label.toLowerCase().includes(searchLower);
     const matchesRole = roleFilter === 'all' || u.role === roleFilter;
     return matchesSearch && matchesRole;
   });
@@ -133,8 +147,8 @@ export default function UsersManager() {
       aValue = a.createdAt?.toMillis?.() || a.createdAt?.seconds || 0;
       bValue = b.createdAt?.toMillis?.() || b.createdAt?.seconds || 0;
     } else if (key === 'role') {
-      aValue = (roleConfig[a.role as keyof typeof roleConfig]?.label || a.role).toLowerCase();
-      bValue = (roleConfig[b.role as keyof typeof roleConfig]?.label || b.role).toLowerCase();
+      aValue = getRoleInfo(a.role).label.toLowerCase();
+      bValue = getRoleInfo(b.role).label.toLowerCase();
     } else if (key === 'name' || key === 'email' || key === 'id') {
       aValue = (aValue || '').toString().toLowerCase();
       bValue = (bValue || '').toString().toLowerCase();
@@ -166,7 +180,7 @@ export default function UsersManager() {
           await deleteDoc(doc(db, 'users', userId));
           showToast("Succès", "L'utilisateur a été supprimé.", "success");
         } catch (error) {
-          console.error("Erreur lors de la suppression:", error);
+          handleFirestoreError(error, OperationType.DELETE, `users/${userId}`);
           showToast("Erreur", "Une erreur est survenue lors de la suppression.", "error");
         }
       }
@@ -188,8 +202,80 @@ export default function UsersManager() {
       setEditingUser(null);
       showToast("Succès", "L'utilisateur a été mis à jour.", "success");
     } catch (error) {
-      console.error("Erreur lors de la mise à jour:", error);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${editingUser.id}`);
       showToast("Erreur", "Une erreur est survenue lors de la mise à jour.", "error");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRoleUpdate = async (userId: string, newRole: string) => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, { role: newRole });
+      showToast("Succès", `Le rôle a été mis à jour en ${getRoleInfo(newRole).label}.`, "success");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+      showToast("Erreur", "Impossible de mettre à jour le rôle.", "error");
+    }
+  };
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserForm.name || !newUserForm.email || !newUserForm.role) {
+      showToast("Erreur", "Veuillez remplir les champs obligatoires.", "error");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      // Check if user already exists
+      const userQuery = query(collection(db, 'users'), where('email', '==', newUserForm.email.toLowerCase()));
+      const userSnapshot = await getDocs(userQuery);
+      
+      if (!userSnapshot.empty) {
+        showToast("Erreur", "Un utilisateur avec cet email existe déjà.", "error");
+        setIsSaving(false);
+        return;
+      }
+
+      const newUser = {
+        name: newUserForm.name,
+        email: newUserForm.email.toLowerCase(),
+        role: newUserForm.role,
+        faculty: newUserForm.faculty || null,
+        promotion: newUserForm.promotion || null,
+        matricule: newUserForm.matricule || `MAT-${Date.now().toString().slice(-6)}`,
+        tenantId: user?.tenantId || 'tenant_demo_1',
+        tenantName: user?.tenantName || 'Université Démo UCCM',
+        createdAt: serverTimestamp(),
+        uid: `manual_${Date.now()}` // Temporary UID until they sign in
+      };
+
+      await addDoc(collection(db, 'users'), newUser);
+      
+      // Add notification
+      await addDoc(collection(db, 'notifications'), {
+        userId: 'SYSTEM',
+        message: `Nouveau compte créé manuellement : ${newUser.name} (${getRoleInfo(newUser.role).label})`,
+        read: false,
+        tenantId: newUser.tenantId,
+        createdAt: serverTimestamp()
+      });
+
+      setIsAddUserModalOpen(false);
+      setNewUserForm({
+        name: '',
+        email: '',
+        role: 'student',
+        faculty: '',
+        promotion: '',
+        matricule: ''
+      });
+      showToast("Succès", "L'utilisateur a été créé avec succès.", "success");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'users');
+      showToast("Erreur", "Impossible de créer l'utilisateur.", "error");
     } finally {
       setIsSaving(false);
     }
@@ -218,7 +304,7 @@ export default function UsersManager() {
           u.id,
           `"${(u.name || '').replace(/"/g, '""')}"`,
           u.email || '',
-          roleConfig[u.role]?.label || u.role,
+          getRoleInfo(u.role).label,
           `"${(u.faculty || '').replace(/"/g, '""')}"`,
           `"${(u.promotion || '').replace(/"/g, '""')}"`,
           u.matricule || '',
@@ -256,7 +342,7 @@ export default function UsersManager() {
             <span className="hidden sm:inline">Exporter CSV</span>
           </button>
           <button 
-            onClick={() => setIsAddInfoOpen(true)}
+            onClick={() => setIsAddUserModalOpen(true)}
             className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all shadow-sm hover:shadow-md"
           >
             <Plus className="w-5 h-5" />
@@ -279,19 +365,28 @@ export default function UsersManager() {
         </div>
         <div className="relative min-w-[200px]">
           <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-          <select
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-            className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none cursor-pointer"
-          >
-            <option value="all">Tous les rôles</option>
-            <option value="student">Étudiants</option>
-            <option value="professor">Professeurs</option>
-            <option value="admin">Administrateurs</option>
-            <option value="cashier">Caissiers</option>
-            <option value="chef">Chefs de Département</option>
-            <option value="super_admin">Super Admins</option>
-          </select>
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none cursor-pointer"
+            >
+              <option value="all">Tous les rôles</option>
+              <optgroup label="Rôles standards">
+                <option value="student">Étudiants</option>
+                <option value="professor">Professeurs</option>
+                <option value="admin">Administrateurs</option>
+                <option value="cashier">Caissiers</option>
+                <option value="chef">Chefs de Département</option>
+                <option value="super_admin">Super Admins</option>
+              </optgroup>
+              {institutionData.customRoles.length > 0 && (
+                <optgroup label="Rôles personnalisés">
+                  {institutionData.customRoles.map(role => (
+                    <option key={role.id} value={role.id}>{role.name}</option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
         </div>
       </div>
 
@@ -361,7 +456,7 @@ export default function UsersManager() {
                 </tr>
               ) : (
                 sortedUsers.map((u) => {
-                  const roleInfo = roleConfig[u.role] || roleConfig.student;
+                  const roleInfo = getRoleInfo(u.role);
                   const RoleIcon = roleInfo.icon;
                   
                   return (
@@ -384,10 +479,36 @@ export default function UsersManager() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${roleInfo.bg} ${roleInfo.color} ${roleInfo.border}`}>
-                          <RoleIcon className="w-3.5 h-3.5" />
-                          {roleInfo.label}
-                        </span>
+                        {user?.role === 'super_admin' ? (
+                          <div className="relative inline-block">
+                            <select
+                              value={u.role}
+                              onChange={(e) => handleRoleUpdate(u.id, e.target.value)}
+                              className={`appearance-none text-xs font-bold rounded-full px-3 py-1.5 border outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer pr-8 ${roleInfo.bg} ${roleInfo.color} ${roleInfo.border}`}
+                            >
+                              <optgroup label="Rôles standards">
+                                {Object.entries(roleConfig).map(([roleKey, config]) => (
+                                  <option key={roleKey} value={roleKey}>
+                                    {config.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                              {institutionData.customRoles.length > 0 && (
+                                <optgroup label="Rôles personnalisés">
+                                  {institutionData.customRoles.map(role => (
+                                    <option key={role.id} value={role.id}>{role.name}</option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </select>
+                            <ChevronDown className={`absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none ${roleInfo.color}`} />
+                          </div>
+                        ) : (
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${roleInfo.bg} ${roleInfo.color} ${roleInfo.border}`}>
+                            <RoleIcon className="w-3.5 h-3.5" />
+                            {roleInfo.label}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         {u.faculty ? (
@@ -449,306 +570,441 @@ export default function UsersManager() {
       </div>
 
       {/* Edit Modal */}
-      {editingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-auto animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10 rounded-t-2xl">
-              <h3 className="text-lg font-bold text-slate-800">Modifier l'utilisateur</h3>
-              <button 
-                onClick={() => setEditingUser(null)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <form onSubmit={handleSaveEdit} className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Nom complet</label>
+      <Modal
+        isOpen={!!editingUser}
+        onClose={() => setEditingUser(null)}
+        title="Modifier l'utilisateur"
+        maxWidth="max-w-2xl"
+        footer={
+          <div className="flex gap-3 w-full">
+            <button 
+              type="button"
+              onClick={() => setEditingUser(null)}
+              className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
+            >
+              Annuler
+            </button>
+            <button 
+              onClick={() => {
+                const form = document.getElementById('edit-user-form') as HTMLFormElement;
+                if (form) form.requestSubmit();
+              }}
+              disabled={isSaving}
+              className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:opacity-70 flex items-center justify-center"
+            >
+              {isSaving ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                'Enregistrer les modifications'
+              )}
+            </button>
+          </div>
+        }
+      >
+        {editingUser && (
+          <form id="edit-user-form" onSubmit={handleSaveEdit} className="p-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Nom complet</label>
+                <div className="relative">
+                  <UserIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input 
                     type="text" 
                     value={editingUser.name} 
                     disabled
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 cursor-not-allowed"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 cursor-not-allowed"
                   />
                 </div>
-                
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Email</label>
+              </div>
+              
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Email</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input 
                     type="email" 
                     value={editingUser.email} 
                     disabled
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 cursor-not-allowed"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 cursor-not-allowed"
                   />
                 </div>
+              </div>
 
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Rôle</label>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Rôle</label>
+                <div className="relative">
+                  <ShieldCheck className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 z-10" />
                   <select 
                     value={editingUser.role}
                     onChange={(e) => setEditingUser({...editingUser, role: e.target.value as any})}
                     disabled={user?.role !== 'super_admin' && user?.role !== 'admin'}
-                    className={`w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${(user?.role !== 'super_admin' && user?.role !== 'admin') ? 'bg-slate-50 cursor-not-allowed text-slate-500' : ''}`}
+                    className={`w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${(user?.role !== 'super_admin' && user?.role !== 'admin') ? 'bg-slate-50 cursor-not-allowed text-slate-500' : ''}`}
                   >
+                    <optgroup label="Rôles standards">
+                      <option value="student">Étudiant</option>
+                      <option value="professor">Professeur</option>
+                      <option value="admin">Administrateur</option>
+                      <option value="cashier">Caissier</option>
+                      <option value="chef">Chef de Département</option>
+                      {user?.role === 'super_admin' && <option value="super_admin">Super Admin</option>}
+                    </optgroup>
+                    {institutionData.customRoles.length > 0 && (
+                      <optgroup label="Rôles personnalisés">
+                        {institutionData.customRoles.map(role => (
+                          <option key={role.id} value={role.id}>{role.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                </div>
+                {(user?.role !== 'super_admin' && user?.role !== 'admin') && (
+                  <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Seul un administrateur peut modifier les rôles.
+                  </p>
+                )}
+              </div>
+
+              {(editingUser.role === 'student' || editingUser.role === 'professor' || editingUser.role === 'chef') && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Faculté / Département</label>
+                  <div className="relative">
+                    <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input 
+                      type="text" 
+                      value={editingUser.faculty || ''}
+                      onChange={(e) => setEditingUser({...editingUser, faculty: e.target.value})}
+                      placeholder="Ex: Sciences Informatiques"
+                      className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {editingUser.role === 'student' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Promotion</label>
+                  <div className="relative">
+                    <GraduationCap className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input 
+                      type="text" 
+                      value={editingUser.promotion || ''}
+                      onChange={(e) => setEditingUser({...editingUser, promotion: e.target.value})}
+                      placeholder="Ex: L3 Info"
+                      className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Add User Modal */}
+      <Modal
+        isOpen={isAddUserModalOpen}
+        onClose={() => setIsAddUserModalOpen(false)}
+        title="Créer un nouvel utilisateur"
+        maxWidth="max-w-2xl"
+        footer={
+          <div className="flex gap-3 w-full">
+            <button 
+              type="button"
+              onClick={() => setIsAddUserModalOpen(false)}
+              className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
+            >
+              Annuler
+            </button>
+            <button 
+              type="button"
+              onClick={() => document.getElementById('add-user-form')?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))}
+              disabled={isSaving}
+              className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:opacity-70 flex items-center justify-center"
+            >
+              {isSaving ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                'Créer l\'utilisateur'
+              )}
+            </button>
+          </div>
+        }
+      >
+        <form id="add-user-form" onSubmit={handleAddUser} className="space-y-5">
+          <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex gap-3">
+            <AlertCircle className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+            <p className="text-xs text-blue-700 leading-relaxed">
+              L'utilisateur pourra se connecter avec son compte Google utilisant cet email. 
+              Ses informations seront automatiquement liées à ce profil lors de sa première connexion.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Nom complet *</label>
+              <div className="relative">
+                <UserIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input 
+                  type="text" 
+                  required
+                  value={newUserForm.name}
+                  onChange={(e) => setNewUserForm({...newUserForm, name: e.target.value})}
+                  placeholder="Ex: Jean Dupont"
+                  className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                />
+              </div>
+            </div>
+            
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Email *</label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input 
+                  type="email" 
+                  required
+                  value={newUserForm.email}
+                  onChange={(e) => setNewUserForm({...newUserForm, email: e.target.value})}
+                  placeholder="ex: jean.dupont@univ.edu"
+                  className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Rôle *</label>
+              <div className="relative">
+                <ShieldCheck className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <select 
+                  value={newUserForm.role}
+                  onChange={(e) => setNewUserForm({...newUserForm, role: e.target.value as any})}
+                  className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all appearance-none"
+                >
+                  <optgroup label="Rôles standards">
                     <option value="student">Étudiant</option>
                     <option value="professor">Professeur</option>
                     <option value="admin">Administrateur</option>
                     <option value="cashier">Caissier</option>
                     <option value="chef">Chef de Département</option>
                     {user?.role === 'super_admin' && <option value="super_admin">Super Admin</option>}
-                  </select>
-                  {(user?.role !== 'super_admin' && user?.role !== 'admin') && (
-                    <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3" />
-                      Seul un administrateur peut modifier les rôles.
-                    </p>
+                  </optgroup>
+                  {institutionData.customRoles.length > 0 && (
+                    <optgroup label="Rôles personnalisés">
+                      {institutionData.customRoles.map(role => (
+                        <option key={role.id} value={role.id}>{role.name}</option>
+                      ))}
+                    </optgroup>
                   )}
-                </div>
-
-                {(editingUser.role === 'student' || editingUser.role === 'professor' || editingUser.role === 'chef') && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Faculté / Département</label>
-                    <input 
-                      type="text" 
-                      value={editingUser.faculty || ''}
-                      onChange={(e) => setEditingUser({...editingUser, faculty: e.target.value})}
-                      placeholder="Ex: Sciences Informatiques"
-                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                    />
-                  </div>
-                )}
-
-                {editingUser.role === 'student' && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Promotion</label>
-                    <input 
-                      type="text" 
-                      value={editingUser.promotion || ''}
-                      onChange={(e) => setEditingUser({...editingUser, promotion: e.target.value})}
-                      placeholder="Ex: L3 Info"
-                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                    />
-                  </div>
-                )}
+                </select>
               </div>
-
-              <div className="mt-8 pt-4 border-t border-slate-100 flex gap-3">
-                <button 
-                  type="button"
-                  onClick={() => setEditingUser(null)}
-                  className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
-                >
-                  Annuler
-                </button>
-                <button 
-                  type="submit"
-                  disabled={isSaving}
-                  className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:opacity-70 flex items-center justify-center"
-                >
-                  {isSaving ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  ) : (
-                    'Enregistrer les modifications'
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Add Info Modal */}
-      {isAddInfoOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 p-6 text-center">
-            <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <AlertCircle className="w-8 h-8 text-blue-500" />
             </div>
-            <h3 className="text-xl font-bold text-slate-800 mb-2">Ajout d'utilisateur</h3>
-            <p className="text-slate-500 text-sm mb-6 leading-relaxed">
-              Pour des raisons de sécurité, les utilisateurs doivent se connecter une première fois avec leur compte Google pour créer leur profil. 
-              <br/><br/>
-              Une fois connectés, ils apparaîtront dans cette liste et vous pourrez modifier leur rôle (Professeur, Admin, etc.).
-            </p>
-            <button 
-              onClick={() => setIsAddInfoOpen(false)}
-              className="w-full px-4 py-2.5 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 transition-colors"
-            >
-              J'ai compris
-            </button>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Matricule (Optionnel)</label>
+              <div className="relative">
+                <FileBadge className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input 
+                  type="text" 
+                  value={newUserForm.matricule}
+                  onChange={(e) => setNewUserForm({...newUserForm, matricule: e.target.value})}
+                  placeholder="Généré automatiquement si vide"
+                  className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                />
+              </div>
+            </div>
+
+            {(newUserForm.role === 'student' || newUserForm.role === 'professor' || newUserForm.role === 'chef') && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Faculté / Département</label>
+                <div className="relative">
+                  <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input 
+                    type="text" 
+                    value={newUserForm.faculty}
+                    onChange={(e) => setNewUserForm({...newUserForm, faculty: e.target.value})}
+                    placeholder="Ex: Sciences Informatiques"
+                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                  />
+                </div>
+              </div>
+            )}
+
+            {newUserForm.role === 'student' && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Promotion</label>
+                <div className="relative">
+                  <GraduationCap className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input 
+                    type="text" 
+                    value={newUserForm.promotion}
+                    onChange={(e) => setNewUserForm({...newUserForm, promotion: e.target.value})}
+                    placeholder="Ex: L3 Info"
+                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                  />
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        </form>
+      </Modal>
 
       {/* ID Card Generation Modal */}
-      {generatingIdFor && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center">
-                  <FileBadge className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-800">Carte d'Identité</h3>
-                  <p className="text-xs text-slate-500">Aperçu avant impression</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setGeneratingIdFor(null)}
-                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 overflow-y-auto flex-1 flex flex-col items-center justify-center bg-slate-100/50">
-              {/* ID Card Container */}
+      <Modal
+        isOpen={!!generatingIdFor}
+        onClose={() => setGeneratingIdFor(null)}
+        title="Carte d'Identité"
+        maxWidth="max-w-md"
+        footer={
+          <div className="flex gap-3 w-full">
+            <button 
+              onClick={() => setGeneratingIdFor(null)}
+              className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
+            >
+              Fermer
+            </button>
+            <button 
+              onClick={() => window.print()}
+              className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+            >
+              <Printer className="w-4 h-4" />
+              Imprimer
+            </button>
+          </div>
+        }
+      >
+        {generatingIdFor && (
+          <div className="flex flex-col items-center justify-center bg-slate-100/50 p-4 rounded-xl">
+            {/* ID Card Container */}
+            <div 
+              id="id-card-print-area"
+              className="w-[340px] h-[540px] bg-white rounded-xl shadow-lg relative overflow-hidden border border-slate-200 flex flex-col"
+              style={{
+                backgroundImage: `linear-gradient(135deg, ${institutionData?.primaryColor || '#2563eb'}08 0%, transparent 100%)`
+              }}
+            >
+              {/* Header */}
               <div 
-                id="id-card-print-area"
-                className="w-[340px] h-[540px] bg-white rounded-xl shadow-lg relative overflow-hidden border border-slate-200 flex flex-col"
-                style={{
-                  backgroundImage: `linear-gradient(135deg, ${institutionData?.primaryColor || '#2563eb'}08 0%, transparent 100%)`
-                }}
+                className="h-24 px-4 flex items-center justify-between relative"
+                style={{ backgroundColor: institutionData?.primaryColor || '#2563eb' }}
               >
-                {/* Header */}
-                <div 
-                  className="h-24 px-4 flex items-center justify-between relative"
-                  style={{ backgroundColor: institutionData?.primaryColor || '#2563eb' }}
-                >
-                  <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-                  <div className="relative z-10 flex items-center gap-3 w-full">
-                    {institutionData?.logoUrl ? (
-                      <img src={institutionData.logoUrl} alt="Logo" className="w-12 h-12 rounded-lg object-contain bg-white p-1" />
-                    ) : (
-                      <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
-                        <Building2 className="w-6 h-6" style={{ color: institutionData?.primaryColor || '#2563eb' }} />
-                      </div>
-                    )}
-                    <div className="text-white flex-1">
-                      <h2 className="font-bold text-sm leading-tight uppercase tracking-wide">{institutionData?.name || 'Université'}</h2>
-                      <p className="text-[10px] opacity-90 mt-0.5 leading-tight">{institutionData?.address || 'Adresse de l\'institution'}</p>
+                <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+                <div className="relative z-10 flex items-center gap-3 w-full">
+                  {institutionData?.logoUrl ? (
+                    <img src={institutionData.logoUrl} alt="Logo" className="w-12 h-12 rounded-lg object-contain bg-white p-1" />
+                  ) : (
+                    <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
+                      <Building2 className="w-6 h-6" style={{ color: institutionData?.primaryColor || '#2563eb' }} />
                     </div>
+                  )}
+                  <div className="text-white flex-1">
+                    <h2 className="font-bold text-sm leading-tight uppercase tracking-wide">{institutionData?.name || 'Université'}</h2>
+                    <p className="text-[10px] opacity-90 mt-0.5 leading-tight">{institutionData?.address || 'Adresse de l\'institution'}</p>
                   </div>
                 </div>
-
-                {/* Body */}
-                <div className="flex-1 p-5 flex flex-col items-center relative">
-                  {/* Photo Placeholder */}
-                  <div className="w-32 h-32 rounded-2xl bg-slate-100 border-4 border-white shadow-md -mt-16 mb-4 flex items-center justify-center overflow-hidden relative z-10">
-                    <div className="text-4xl font-bold text-slate-300">
-                      {getInitials(generatingIdFor.name)}
-                    </div>
-                  </div>
-
-                  <div className="text-center w-full mb-4">
-                    <h1 className="text-xl font-bold text-slate-800 uppercase tracking-tight">{generatingIdFor.name}</h1>
-                    <p className="text-sm font-medium text-slate-500 mt-1 uppercase">
-                      {roleConfig[generatingIdFor.role]?.label || 'Utilisateur'}
-                    </p>
-                  </div>
-
-                  <div className="w-full space-y-2.5 mb-6">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ID</span>
-                      <span className="text-xs font-bold text-slate-800 font-mono">{generatingIdFor.matricule || generatingIdFor.id.substring(0, 8)}</span>
-                    </div>
-                    {generatingIdFor.faculty && (
-                      <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Faculté / Dép.</span>
-                        <span className="text-xs font-semibold text-slate-700">{generatingIdFor.faculty}</span>
-                      </div>
-                    )}
-                    {generatingIdFor.promotion && (
-                      <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Promotion</span>
-                        <span className="text-xs font-semibold text-slate-700">{generatingIdFor.promotion}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Email</span>
-                      <span className="text-[10px] font-semibold text-slate-700 truncate max-w-[150px]">{generatingIdFor.email}</span>
-                    </div>
-                  </div>
-
-                  {/* QR Code */}
-                  <div className="mt-auto flex flex-col items-center">
-                    <div className="p-1.5 bg-white rounded-lg shadow-sm border border-slate-100">
-                      <QRCodeSVG 
-                        value={`user:${generatingIdFor.id}:${generatingIdFor.role}`} 
-                        size={64} 
-                        level="M"
-                        fgColor={institutionData?.primaryColor || '#2563eb'}
-                      />
-                    </div>
-                    <p className="text-[8px] text-slate-400 mt-2 font-mono uppercase tracking-widest">
-                      UID: {generatingIdFor.id.substring(0, 8)}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Footer */}
-                <div 
-                  className="h-3 w-full"
-                  style={{ backgroundColor: institutionData?.primaryColor || '#2563eb' }}
-                ></div>
               </div>
-            </div>
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex gap-3 shrink-0">
-              <button 
-                onClick={() => setGeneratingIdFor(null)}
-                className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
-              >
-                Fermer
-              </button>
-              <button 
-                onClick={() => window.print()}
-                className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
-              >
-                <Printer className="w-4 h-4" />
-                Imprimer
-              </button>
+              {/* Body */}
+              <div className="flex-1 p-5 flex flex-col items-center relative">
+                {/* Photo Placeholder */}
+                <div className="w-32 h-32 rounded-2xl bg-slate-100 border-4 border-white shadow-md -mt-16 mb-4 flex items-center justify-center overflow-hidden relative z-10">
+                  <div className="text-4xl font-bold text-slate-300">
+                    {getInitials(generatingIdFor.name)}
+                  </div>
+                </div>
+
+                <div className="text-center w-full mb-4">
+                  <h1 className="text-xl font-bold text-slate-800 uppercase tracking-tight">{generatingIdFor.name}</h1>
+                  <p className="text-sm font-medium text-slate-500 mt-1 uppercase">
+                    {roleConfig[generatingIdFor.role]?.label || 'Utilisateur'}
+                  </p>
+                </div>
+
+                <div className="w-full space-y-2.5 mb-6">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ID</span>
+                    <span className="text-xs font-bold text-slate-800 font-mono">{generatingIdFor.matricule || generatingIdFor.id.substring(0, 8)}</span>
+                  </div>
+                  {generatingIdFor.faculty && (
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Faculté / Dép.</span>
+                      <span className="text-xs font-semibold text-slate-700">{generatingIdFor.faculty}</span>
+                    </div>
+                  )}
+                  {generatingIdFor.promotion && (
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Promotion</span>
+                      <span className="text-xs font-semibold text-slate-700">{generatingIdFor.promotion}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Email</span>
+                    <span className="text-[10px] font-semibold text-slate-700 truncate max-w-[150px]">{generatingIdFor.email}</span>
+                  </div>
+                </div>
+
+                {/* QR Code */}
+                <div className="mt-auto flex flex-col items-center">
+                  <div className="p-1.5 bg-white rounded-lg shadow-sm border border-slate-100">
+                    <QRCodeSVG 
+                      value={`user:${generatingIdFor.id}:${generatingIdFor.role}`} 
+                      size={64} 
+                      level="M"
+                      fgColor={institutionData?.primaryColor || '#2563eb'}
+                    />
+                  </div>
+                  <p className="text-[8px] text-slate-400 mt-2 font-mono uppercase tracking-widest">
+                    UID: {generatingIdFor.id.substring(0, 8)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div 
+                className="h-3 w-full"
+                style={{ backgroundColor: institutionData?.primaryColor || '#2563eb' }}
+              ></div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* Confirmation Modal */}
-      {confirmAction && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                <AlertCircle className="w-6 h-6 text-red-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">Confirmation</h3>
-                <p className="text-slate-600 mt-1">{confirmAction.message}</p>
-              </div>
+      <Modal
+        isOpen={!!confirmAction}
+        onClose={() => setConfirmAction(null)}
+        title="Confirmation"
+        maxWidth="max-w-md"
+        footer={
+          <div className="flex justify-end gap-3 w-full">
+            <button
+              onClick={() => setConfirmAction(null)}
+              className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={() => {
+                confirmAction?.onConfirm();
+                setConfirmAction(null);
+              }}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors"
+            >
+              Confirmer
+            </button>
+          </div>
+        }
+      >
+        {confirmAction && (
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+              <AlertCircle className="w-6 h-6 text-red-600" />
             </div>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setConfirmAction(null)}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={() => {
-                  confirmAction.onConfirm();
-                  setConfirmAction(null);
-                }}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
-              >
-                Confirmer
-              </button>
+            <div>
+              <p className="text-slate-600">{confirmAction.message}</p>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* Toast Message */}
       {toastMessage && (

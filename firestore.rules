@@ -115,7 +115,7 @@ service cloud.firestore {
     function isSuperAdmin() {
       return isAuthenticated() && (
         (request.auth.token.email == "kassheritier@telgroups.org") ||
-        hasRole('super_admin')
+        (userExists() && (getUserData().role == 'super_admin' || getUserData().email == 'kassheritier@telgroups.org'))
       );
     }
 
@@ -142,6 +142,7 @@ service cloud.firestore {
     function isSameTenant(data) {
       return isAuthenticated() && (
         isSuperAdmin() || 
+        (data.tenantId == 'tenant_demo_1') ||
         (userExists() && data.tenantId == getUserData().tenantId)
       );
     }
@@ -150,6 +151,7 @@ service cloud.firestore {
     function canReadInTenant(tenantId) {
       return isAuthenticated() && (
         isSuperAdmin() || 
+        (tenantId == 'tenant_demo_1') ||
         (userExists() && tenantId == getUserData().tenantId)
       );
     }
@@ -311,11 +313,12 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isSuperAdmin();
       allow read: if isAuthenticated() && isOwner(userId);
-      allow read: if canReadInTenant(resource.data.tenantId) && (isAdmin() || isCashier() || isChef());
+      allow read: if canReadInTenant(resource.data.tenantId) && (isAdmin() || isCashier() || isChef() || resource.data.tenantId == 'tenant_demo_1');
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && request.resource.data.createdAt == request.time && (
         (isOwner(userId) && request.resource.data.role == 'student') || 
         (isAdmin() && (isSuperAdmin() || request.resource.data.role != 'super_admin')) ||
-        (isOwner(userId) && request.resource.data.email.matches("^demo\\..*@saas\\.edu$")) || // ALLOW DEMO ACCOUNTS
+        (isOwner(userId) && request.resource.data.email.matches(".*@demo\\.com$")) || // ALLOW NEW DEMO ACCOUNTS
+        (isOwner(userId) && request.resource.data.email.matches("^demo\\..*@saas\\.edu$")) || // ALLOW LEGACY DEMO ACCOUNTS
         (isOwner(userId) && request.resource.data.email == 'kassheritier@telgroups.org' && request.resource.data.role == 'super_admin')
       );
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
@@ -328,7 +331,7 @@ service cloud.firestore {
 
     match /institutions/{institutionId} {
       allow read: if isSuperAdmin();
-      allow read: if isAuthenticated() && userExists() && getUserData().tenantId == institutionId;
+      allow read: if isAuthenticated() && (institutionId == 'tenant_demo_1' || (userExists() && getUserData().tenantId == institutionId));
       allow read: if isAuthenticated() && 'email' in request.auth.token && resource != null && 'contactEmail' in resource.data && resource.data.contactEmail == request.auth.token.email;
       allow create: if isSuperAdmin() && isValidInstitution(request.resource.data) && request.resource.data.createdAt == request.time;
       allow update: if isAuthenticated() && isValidInstitution(request.resource.data) && areImmutableFieldsUnchanged(['createdAt']) && (
@@ -353,7 +356,7 @@ service cloud.firestore {
 
     match /payments/{paymentId} {
       allow read: if isSuperAdmin();
-      allow read: if canReadInTenant(resource.data.tenantId) && (isAdmin() || isCashier());
+      allow read: if canReadInTenant(resource.data.tenantId) && (isAdmin() || isCashier() || resource.data.tenantId == 'tenant_demo_1');
       allow read: if canReadInTenant(resource.data.tenantId) && resource.data.studentId == request.auth.uid;
       allow create: if isAuthenticated() && isValidPayment(request.resource.data) && isSameTenant(request.resource.data) && request.resource.data.createdAt == request.time && (
         request.resource.data.studentId == request.auth.uid || isAdmin()
@@ -377,7 +380,7 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
       allow read: if isSuperAdmin();
-      allow read: if canReadInTenant(resource.data.tenantId) && (isAdmin() || isChef() || isCashier());
+      allow read: if canReadInTenant(resource.data.tenantId) && (isAdmin() || isChef() || isCashier() || resource.data.tenantId == 'tenant_demo_1');
       allow read: if canReadInTenant(resource.data.tenantId) && resource.data.userId == request.auth.uid;
       allow create: if isAuthenticated() && isValidNotification(request.resource.data) && isSameTenant(request.resource.data) && request.resource.data.createdAt == request.time;
       allow update: if isAuthenticated() && isValidNotification(request.resource.data) && isSameTenant(resource.data) && (
@@ -389,7 +392,7 @@ service cloud.firestore {
 
     match /messages/{messageId} {
       allow read: if isSuperAdmin();
-      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId;
+      allow read: if canReadInTenant(resource.data.tenantId);
       allow create: if isAuthenticated() && isValidMessage(request.resource.data) && isSameTenant(request.resource.data) && request.resource.data.senderId == request.auth.uid && request.resource.data.createdAt == request.time;
       allow update: if isAuthenticated() && isValidMessage(request.resource.data) && isSameTenant(resource.data) && (
         (resource.data.senderId == request.auth.uid && areImmutableFieldsUnchanged(['groupId', 'senderId', 'tenantId', 'createdAt'])) || 
@@ -400,7 +403,7 @@ service cloud.firestore {
 
     match /library_resources/{resourceId} {
       allow read: if isSuperAdmin();
-      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId;
+      allow read: if canReadInTenant(resource.data.tenantId);
       allow create: if isAuthenticated() && isValidLibraryResource(request.resource.data) && isSameTenant(request.resource.data) && isAdmin() && request.resource.data.createdAt == request.time;
       allow update: if isAuthenticated() && isValidLibraryResource(request.resource.data) && isSameTenant(resource.data) && isAdmin() && areImmutableFieldsUnchanged(['tenantId', 'createdAt']);
       allow delete: if isAuthenticated() && isSameTenant(resource.data) && isAdmin();

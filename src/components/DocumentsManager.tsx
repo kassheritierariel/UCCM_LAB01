@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, query, onSnapshot, orderBy, doc, updateDoc, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, doc, updateDoc, where, limit, addDoc, serverTimestamp } from 'firebase/firestore';
 import { 
   Search, Filter, FileText, CheckCircle, XCircle, Clock, 
   Eye, MessageSquare, Download, FileArchive, BookOpen, GraduationCap,
@@ -9,6 +9,7 @@ import {
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '../AuthContext';
+import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 
 interface Document {
   id: string;
@@ -53,15 +54,24 @@ export default function DocumentsManager() {
   const [rejectReason, setRejectReason] = useState('');
   
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newDoc, setNewDoc] = useState({
+    title: '',
+    type: 'tfc' as Document['type'],
+    studentName: '',
+    studentId: '',
+    faculty: '',
+    fileUrl: ''
+  });
 
   useEffect(() => {
     if (!user) return;
 
     let q;
     if (user.role === 'super_admin') {
-      q = query(collection(db, 'documents'), orderBy('submittedAt', 'desc'));
+      q = query(collection(db, 'documents'), orderBy('submittedAt', 'desc'), limit(100));
     } else {
-      q = query(collection(db, 'documents'), where('tenantId', '==', user.tenantId), orderBy('submittedAt', 'desc'));
+      q = query(collection(db, 'documents'), where('tenantId', '==', user.tenantId), orderBy('submittedAt', 'desc'), limit(100));
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -72,7 +82,7 @@ export default function DocumentsManager() {
       setDocuments(docsData);
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching documents:", error);
+      handleFirestoreError(error, OperationType.GET, 'documents');
       setLoading(false);
     });
     return () => unsubscribe();
@@ -103,13 +113,12 @@ export default function DocumentsManager() {
       await updateDoc(docRef, {
         status,
         feedback: feedback.trim() || null,
-        reviewedAt: new Date()
+        reviewedAt: serverTimestamp()
       });
       setReviewingDoc(null);
       setFeedback('');
     } catch (error) {
-      console.error("Erreur lors de l'évaluation:", error);
-      // In a real app, show a toast notification
+      handleFirestoreError(error, OperationType.UPDATE, `documents/${reviewingDoc.id}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -121,10 +130,10 @@ export default function DocumentsManager() {
       const docRef = doc(db, 'documents', docToApprove.id);
       await updateDoc(docRef, {
         status: 'approved',
-        reviewedAt: new Date()
+        reviewedAt: serverTimestamp()
       });
     } catch (error) {
-      console.error("Erreur lors de l'approbation:", error);
+      handleFirestoreError(error, OperationType.UPDATE, `documents/${docToApprove.id}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -138,12 +147,44 @@ export default function DocumentsManager() {
       await updateDoc(docRef, {
         status: 'rejected',
         feedback: rejectReason.trim(),
-        reviewedAt: new Date()
+        reviewedAt: serverTimestamp()
       });
       setRejectingDoc(null);
       setRejectReason('');
     } catch (error) {
-      console.error("Erreur lors du rejet:", error);
+      handleFirestoreError(error, OperationType.UPDATE, `documents/${rejectingDoc.id}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAddDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDoc.title || !newDoc.studentName || !newDoc.faculty) return;
+
+    setIsSubmitting(true);
+    try {
+      const docData = {
+        ...newDoc,
+        status: 'approved', // Admin submissions are auto-approved
+        submittedAt: serverTimestamp(),
+        reviewedAt: serverTimestamp(),
+        tenantId: user?.tenantId,
+        studentId: newDoc.studentId || `ADMIN_${Date.now()}`
+      };
+
+      await addDoc(collection(db, 'documents'), docData);
+      setShowAddModal(false);
+      setNewDoc({
+        title: '',
+        type: 'tfc',
+        studentName: '',
+        studentId: '',
+        faculty: '',
+        fileUrl: ''
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'documents');
     } finally {
       setIsSubmitting(false);
     }
@@ -198,13 +239,22 @@ export default function DocumentsManager() {
             <h2 className="text-2xl font-bold text-slate-800">Validation des Documents</h2>
             <p className="text-sm text-slate-500 mt-1">Examinez et validez les TFC, mémoires et rapports de stage soumis par les étudiants.</p>
           </div>
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-medium hover:bg-slate-50 transition-colors shadow-sm"
-          >
-            <Download className="w-5 h-5" />
-            <span className="hidden sm:inline">Exporter CSV</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-blue-700 transition-all shadow-sm shadow-blue-200"
+            >
+              <FileText className="w-5 h-5" />
+              <span className="hidden sm:inline">Nouveau Document</span>
+            </button>
+            <button
+              onClick={handleExportCSV}
+              className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-medium hover:bg-slate-50 transition-colors shadow-sm"
+            >
+              <Download className="w-5 h-5" />
+              <span className="hidden sm:inline">Exporter CSV</span>
+            </button>
+          </div>
         </div>
         <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-6 rounded-2xl shadow-sm text-white flex items-center justify-between">
           <div>
@@ -442,6 +492,111 @@ export default function DocumentsManager() {
                 Confirmer le rejet
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Document Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg my-8 animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800">Ajouter un document</h3>
+              <button 
+                onClick={() => setShowAddModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleAddDocument} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Titre du document</label>
+                <input 
+                  type="text"
+                  required
+                  value={newDoc.title}
+                  onChange={(e) => setNewDoc({...newDoc, title: e.target.value})}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Ex: Analyse des systèmes..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Type de document</label>
+                <select 
+                  value={newDoc.type}
+                  onChange={(e) => setNewDoc({...newDoc, type: e.target.value as Document['type']})}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="tfc">TFC</option>
+                  <option value="memoire">Mémoire</option>
+                  <option value="rapport">Rapport</option>
+                  <option value="autre">Autre</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nom de l'étudiant</label>
+                  <input 
+                    type="text"
+                    required
+                    value={newDoc.studentName}
+                    onChange={(e) => setNewDoc({...newDoc, studentName: e.target.value})}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">ID Étudiant (Matricule)</label>
+                  <input 
+                    type="text"
+                    required
+                    value={newDoc.studentId}
+                    onChange={(e) => setNewDoc({...newDoc, studentId: e.target.value})}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Faculté / Département</label>
+                <input 
+                  type="text"
+                  value={newDoc.faculty}
+                  onChange={(e) => setNewDoc({...newDoc, faculty: e.target.value})}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">URL du fichier (PDF)</label>
+                <input 
+                  type="url"
+                  value={newDoc.fileUrl}
+                  onChange={(e) => setNewDoc({...newDoc, fileUrl: e.target.value})}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="https://..."
+                />
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Annuler
+                </button>
+                <button 
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-6 py-2 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all shadow-md disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Ajout...' : 'Ajouter le document'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

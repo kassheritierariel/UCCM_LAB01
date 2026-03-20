@@ -10,7 +10,7 @@ import WhatsAppButton from './components/WhatsAppButton';
 import OfflineIndicator from './components/OfflineIndicator';
 import RegisterInstitution from './RegisterInstitution';
 
-const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
+const ProtectedRoute = ({ children, allowedRoles, isStaffOnly }: { children: React.ReactNode, allowedRoles?: string[], isStaffOnly?: boolean }) => {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -19,6 +19,10 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
 
   if (!user) {
     return <Navigate to="/login" />;
+  }
+
+  if (isStaffOnly && ['student', 'professor'].includes(user.role)) {
+    return <Navigate to="/app" />;
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
@@ -40,17 +44,13 @@ const RoleBasedRedirect = () => {
   }
 
   switch (user.role) {
-    case 'admin':
-    case 'cashier':
-    case 'chef':
-    case 'super_admin':
-      return <Navigate to="/dashboard" />;
     case 'student':
       return <Navigate to="/student" />;
     case 'professor':
       return <Navigate to="/professor" />;
     default:
-      return <Navigate to="/login" />;
+      // admin, cashier, chef, super_admin, and any custom roles
+      return <Navigate to="/dashboard" />;
   }
 };
 
@@ -67,7 +67,7 @@ export default function App() {
           <Route 
             path="/dashboard" 
             element={
-              <ProtectedRoute allowedRoles={['admin', 'cashier', 'chef', 'super_admin']}>
+              <ProtectedRoute isStaffOnly>
                 <Dashboard />
               </ProtectedRoute>
             } 

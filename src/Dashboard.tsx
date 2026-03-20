@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { db } from './firebase';
-import { collection, query, onSnapshot, orderBy, limit, where, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, limit, where, updateDoc, doc, getCountFromServer, getDocs } from 'firebase/firestore';
 import {
   BookOpen, Bell, Users, Banknote, Clock, PieChart, Download, Printer,
   UserPlus, CircleDollarSign, FileText, Settings, ChevronRight, ArrowRight,
@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { getRoleInfo, roleConfig } from './utils/roleUtils';
 import Logo from './components/Logo';
 import UsersManager from './components/UsersManager';
 import StudentManager from './components/StudentManager';
@@ -138,6 +139,42 @@ export default function Dashboard() {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [tenantSettings, setTenantSettings] = useState<any>(null);
 
+  const navigation = useMemo(() => [
+    { id: 'overview', name: "Vue d'ensemble", icon: LayoutDashboard, roles: ['admin', 'cashier', 'chef', 'super_admin', 'professor', 'student'], group: 'Général' },
+    { id: 'institutions', name: 'Institutions SaaS', icon: Building2, roles: ['super_admin'], group: 'Gestion' },
+    { id: 'users', name: 'Utilisateurs', icon: Users, roles: ['admin', 'super_admin'], group: 'Gestion' },
+    { id: 'students', name: 'Étudiants', icon: GraduationCap, roles: ['admin', 'chef', 'super_admin'], group: 'Gestion', feature: 'students' },
+    { id: 'courses', name: 'Cours & Programmes', icon: BookOpen, roles: ['admin', 'chef', 'super_admin', 'professor'], group: 'Gestion', feature: 'courses' },
+    { id: 'documents', name: 'Documents & TFC', icon: FileText, roles: ['admin', 'chef', 'super_admin'], group: 'Gestion', feature: 'documents' },
+    { id: 'payments', name: 'Paiements', icon: CircleDollarSign, roles: ['admin', 'cashier', 'super_admin'], group: 'Gestion', feature: 'payments' },
+    { id: 'library', name: 'Bibliothèque Numérique', icon: Library, roles: ['admin', 'chef', 'super_admin', 'student', 'professor'], group: 'Outils', feature: 'library' },
+    { id: 'ai', name: 'Outils IA', icon: Sparkles, roles: ['admin', 'super_admin', 'chef', 'cashier'], group: 'Outils', feature: 'ai' },
+    { id: 'settings', name: 'Paramètres', icon: Settings, roles: ['admin', 'super_admin'], group: 'Outils' },
+  ], []);
+
+  const allowedNav = useMemo(() => {
+    return navigation.filter(item => {
+      // Super admin always has access to everything in the list if their role is included
+      if (user?.role === 'super_admin') return item.roles.includes('super_admin');
+
+      // Check if the role has explicit permission for this item id in the institution settings
+      if (tenantSettings?.settings?.rolePermissions && user?.role) {
+        const rolePerms = tenantSettings.settings.rolePermissions[user.role];
+        if (rolePerms) {
+          // If the role has a defined list of permissions, use it
+          return rolePerms.includes(item.id);
+        }
+      }
+
+      // Fallback to legacy check if rolePermissions is not set for this role
+      if (!item.roles.includes(user?.role || '')) return false;
+      if (item.feature && tenantSettings?.features) {
+        return tenantSettings.features.includes(item.feature);
+      }
+      return true;
+    });
+  }, [navigation, user?.role, tenantSettings]);
+
   useEffect(() => {
     if (!user || user.tenantId === 'SYSTEM') return;
     
@@ -156,66 +193,56 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user) return;
 
-    // Institutions count for super_admin
-    if (user.role === 'super_admin') {
-      const q = query(collection(db, 'institutions'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        setInstitutionsCount(snapshot.size);
-      }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'institutions');
-      });
-      return () => unsubscribe();
-    }
-  }, [user]);
+    const fetchCounts = async () => {
+      try {
+        const hasPermission = (id: string) => allowedNav.some(n => n.id === id);
 
-  useEffect(() => {
-    if (!user) return;
+        // Institutions count for super_admin
+        if (user.role === 'super_admin') {
+          const q = query(collection(db, 'institutions'));
+          const snapshot = await getCountFromServer(q);
+          setInstitutionsCount(snapshot.data().count);
+        }
 
-    // Users count
-    if (['admin', 'super_admin'].includes(user.role)) {
-      const q = user.role === 'super_admin' ? query(collection(db, 'users')) : query(collection(db, 'users'), where('tenantId', '==', user.tenantId));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        setUsersCount(snapshot.size);
-      }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'users');
-      });
-      return () => unsubscribe();
-    }
-  }, [user]);
+        // Users count
+        if (['admin', 'super_admin'].includes(user.role) || hasPermission('users')) {
+          const q = user.role === 'super_admin' ? query(collection(db, 'users')) : query(collection(db, 'users'), where('tenantId', '==', user.tenantId));
+          const snapshot = await getCountFromServer(q);
+          setUsersCount(snapshot.data().count);
+        }
 
-  useEffect(() => {
-    if (!user) return;
-    // Docs count
-    if (['admin', 'chef', 'super_admin'].includes(user.role)) {
-      const q = user.role === 'super_admin' ? query(collection(db, 'documents')) : query(collection(db, 'documents'), where('tenantId', '==', user.tenantId));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        setDocsCount(snapshot.size);
-      }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'documents');
-      });
-      return () => unsubscribe();
-    }
-  }, [user]);
+        // Docs count
+        if (['admin', 'chef', 'super_admin'].includes(user.role) || hasPermission('documents')) {
+          const q = user.role === 'super_admin' ? query(collection(db, 'documents')) : query(collection(db, 'documents'), where('tenantId', '==', user.tenantId));
+          const snapshot = await getCountFromServer(q);
+          setDocsCount(snapshot.data().count);
+        }
 
-  useEffect(() => {
-    if (!user) return;
-    // Payments count & revenue
-    if (['admin', 'cashier', 'super_admin'].includes(user.role)) {
-      const q = user.role === 'super_admin' ? query(collection(db, 'payments')) : query(collection(db, 'payments'), where('tenantId', '==', user.tenantId));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        setPaymentsCount(snapshot.size);
-        let rev = 0;
-        snapshot.forEach(doc => {
-          const data = doc.data();
-          if (data.status === 'completed') rev += (data.amount || 0);
-        });
-        setTotalRevenue(rev);
-      }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'payments');
-      });
-      return () => unsubscribe();
-    }
-  }, [user]);
+        // Payments count & revenue
+        if (['admin', 'cashier', 'super_admin'].includes(user.role) || hasPermission('payments')) {
+          const q = user.role === 'super_admin' ? query(collection(db, 'payments')) : query(collection(db, 'payments'), where('tenantId', '==', user.tenantId));
+          
+          // Count payments
+          const countSnapshot = await getCountFromServer(q);
+          setPaymentsCount(countSnapshot.data().count);
+
+          // Calculate revenue (only completed payments)
+          const revQuery = query(q, where('status', '==', 'completed'));
+          const revSnapshot = await getDocs(revQuery);
+          let rev = 0;
+          revSnapshot.forEach(doc => {
+            const data = doc.data();
+            rev += (data.amount || 0);
+          });
+          setTotalRevenue(rev);
+        }
+      } catch (error) {
+        console.error("Error fetching counts:", error);
+      }
+    };
+
+    fetchCounts();
+  }, [user, allowedNav]);
 
   // Notifications fetching
   useEffect(() => {
@@ -252,40 +279,6 @@ export default function Dashboard() {
     notifications.filter(n => !n.read).forEach(n => markAsRead(n.id));
   };
 
-  const navigation = [
-    { id: 'overview', name: "Vue d'ensemble", icon: LayoutDashboard, roles: ['admin', 'cashier', 'chef', 'super_admin'], group: 'Général' },
-    { id: 'institutions', name: 'Institutions SaaS', icon: Building2, roles: ['super_admin'], group: 'Gestion' },
-    { id: 'users', name: 'Utilisateurs', icon: Users, roles: ['admin', 'super_admin'], group: 'Gestion' },
-    { id: 'students', name: 'Étudiants', icon: GraduationCap, roles: ['admin', 'chef', 'super_admin'], group: 'Gestion', feature: 'students' },
-    { id: 'courses', name: 'Cours & Programmes', icon: BookOpen, roles: ['admin', 'chef', 'super_admin', 'professor'], group: 'Gestion', feature: 'courses' },
-    { id: 'documents', name: 'Documents & TFC', icon: FileText, roles: ['admin', 'chef', 'super_admin'], group: 'Gestion', feature: 'documents' },
-    { id: 'payments', name: 'Paiements', icon: CircleDollarSign, roles: ['admin', 'cashier', 'super_admin'], group: 'Gestion', feature: 'payments' },
-    { id: 'library', name: 'Bibliothèque Numérique', icon: Library, roles: ['admin', 'chef', 'super_admin', 'student', 'professor'], group: 'Outils', feature: 'library' },
-    { id: 'ai', name: 'Outils IA', icon: Sparkles, roles: ['admin', 'super_admin', 'chef', 'cashier'], group: 'Outils', feature: 'ai' },
-    { id: 'settings', name: 'Paramètres', icon: Settings, roles: ['admin', 'super_admin'], group: 'Outils' },
-  ];
-
-  const allowedNav = navigation.filter(item => {
-    // Super admin always has access to everything in the list if their role is included
-    if (user?.role === 'super_admin') return item.roles.includes('super_admin');
-
-    // Check if the role has explicit permission for this item id in the institution settings
-    if (tenantSettings?.settings?.rolePermissions && user?.role) {
-      const rolePerms = tenantSettings.settings.rolePermissions[user.role];
-      if (rolePerms) {
-        // If the role has a defined list of permissions, use it
-        return rolePerms.includes(item.id);
-      }
-    }
-
-    // Fallback to legacy check if rolePermissions is not set for this role
-    if (!item.roles.includes(user?.role || '')) return false;
-    if (item.feature && tenantSettings?.features) {
-      return tenantSettings.features.includes(item.feature);
-    }
-    return true;
-  });
-
   // Group navigation items
   const groupedNav = allowedNav.reduce((acc, item) => {
     if (!acc[item.group]) {
@@ -296,27 +289,14 @@ export default function Dashboard() {
   }, {} as Record<string, typeof allowedNav>);
 
   const getRoleIcon = (role: string) => {
-    switch (role) {
-      case 'super_admin': return <ShieldCheck className="w-4 h-4 text-slate-800" />;
-      case 'admin': return <ShieldCheck className="w-4 h-4 text-purple-600" />;
-      case 'student': return <GraduationCap className="w-4 h-4 text-blue-600" />;
-      case 'professor': return <Briefcase className="w-4 h-4 text-emerald-600" />;
-      case 'cashier': return <Calculator className="w-4 h-4 text-amber-600" />;
-      case 'chef': return <Award className="w-4 h-4 text-rose-600" />;
-      default: return <Users className="w-4 h-4 text-slate-600" />;
-    }
+    const info = getRoleInfo(role, tenantSettings?.settings?.customRoles || []);
+    const Icon = info.icon;
+    return <Icon className={`w-4 h-4 ${info.color}`} />;
   };
 
   const getRoleLabel = (role: string) => {
-    switch (role) {
-      case 'super_admin': return 'Super Admin SaaS';
-      case 'admin': return 'Administrateur';
-      case 'student': return 'Étudiant';
-      case 'professor': return 'Professeur';
-      case 'cashier': return 'Caissier';
-      case 'chef': return 'Chef de Dép.';
-      default: return role;
-    }
+    const info = getRoleInfo(role, tenantSettings?.settings?.customRoles || []);
+    return info.label;
   };
 
   return (
@@ -768,6 +748,69 @@ export default function Dashboard() {
                   <ShortcutButton onClick={() => setActiveTab('documents')} icon={<FileText className="h-5 w-5" />} title="Nouveau Document" subtitle="Ajouter" colorClass="blue" />
                   <ShortcutButton onClick={() => setActiveTab('students')} icon={<Users className="h-5 w-5" />} title="Étudiants" subtitle="Liste" colorClass="emerald" />
                 </section>
+              )}
+
+              {/* CUSTOM ROLE OVERVIEW */}
+              {!['super_admin', 'admin', 'cashier', 'chef', 'professor', 'student'].includes(user?.role || '') && (
+                <div className="space-y-6">
+                  <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {allowedNav.some(n => n.id === 'users') && (
+                      <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                        <div className="flex justify-between items-start">
+                          <span className="text-slate-500 text-sm font-medium uppercase tracking-tight">Utilisateurs</span>
+                          <span className="bg-blue-50 text-blue-500 p-2 rounded-lg">
+                            <Users className="h-5 w-5" />
+                          </span>
+                        </div>
+                        <div className="mt-4">
+                          <h2 className="text-3xl font-bold text-slate-800">{usersCount}</h2>
+                          <p className="text-xs text-slate-500 mt-1 font-medium">Inscrits sur la plateforme</p>
+                        </div>
+                      </div>
+                    )}
+                    {allowedNav.some(n => n.id === 'payments') && (
+                      <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                        <div className="flex justify-between items-start">
+                          <span className="text-slate-500 text-sm font-medium uppercase tracking-tight">Revenus</span>
+                          <span className="bg-emerald-50 text-emerald-500 p-2 rounded-lg">
+                            <Banknote className="h-5 w-5" />
+                          </span>
+                        </div>
+                        <div className="mt-4">
+                          <h2 className="text-3xl font-bold text-slate-800">{totalRevenue.toLocaleString('en-US')} $</h2>
+                          <p className="text-xs text-slate-500 mt-1 font-medium">Paiements complétés</p>
+                        </div>
+                      </div>
+                    )}
+                    {allowedNav.some(n => n.id === 'documents') && (
+                      <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                        <div className="flex justify-between items-start">
+                          <span className="text-slate-500 text-sm font-medium uppercase tracking-tight">Documents</span>
+                          <span className="bg-amber-50 text-amber-500 p-2 rounded-lg">
+                            <FileText className="h-5 w-5" />
+                          </span>
+                        </div>
+                        <div className="mt-4">
+                          <h2 className="text-3xl font-bold text-slate-800">{docsCount}</h2>
+                          <p className="text-xs text-slate-500 mt-1 font-medium">TFC & Mémoires</p>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {allowedNav.filter(n => n.id !== 'overview').slice(0, 4).map(item => (
+                      <ShortcutButton 
+                        key={item.id}
+                        onClick={() => setActiveTab(item.id)} 
+                        icon={<item.icon className="h-5 w-5" />} 
+                        title={item.name} 
+                        subtitle="Accès rapide" 
+                        colorClass="slate" 
+                      />
+                    ))}
+                  </section>
+                </div>
               )}
             </div>
           )}

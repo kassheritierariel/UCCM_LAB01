@@ -5,30 +5,12 @@ import { BookOpen, GraduationCap, ShieldCheck, Library, ArrowRight, Briefcase, C
 import Logo from './components/Logo';
 
 export default function Login() {
-  const { user, signIn, signInWithEmail, signInAsDemo, loading } = useAuth();
+  const { user, signIn, signInWithEmail, loading } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleDemoLogin = async (role: any) => {
-    setIsSubmitting(true);
-    setAuthError('');
-    try {
-      await signInAsDemo(role);
-    } catch (error: any) {
-      if (error.code === 'auth/operation-not-allowed') {
-        setAuthError("L'authentification anonyme n'est pas activée. Veuillez l'activer dans la console Firebase.");
-      } else if (error.code === 'auth/admin-restricted-operation') {
-        setAuthError("La création de compte est désactivée. Dans Firebase, allez dans Authentication > Settings > User actions et cochez 'Enable create (sign-up)'.");
-      } else {
-        setAuthError("Erreur lors de la connexion de démonstration : " + error.message);
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,6 +187,59 @@ export default function Login() {
                 </button>
               </form>
 
+              {/* Demo Credentials Section */}
+              <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl space-y-3">
+                <div className="flex items-center gap-2 text-blue-700 font-bold text-[10px] uppercase tracking-wider">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Comptes de Démonstration
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button 
+                    onClick={() => { setEmail('superadmin@demo.com'); setPassword('superadmin123'); }}
+                    className="text-left p-2 hover:bg-blue-100 rounded-lg transition-colors group border border-blue-200"
+                  >
+                    <p className="text-[10px] font-bold text-blue-800">Super Admin</p>
+                    <p className="text-[9px] text-blue-600 truncate">superadmin@demo.com</p>
+                  </button>
+                  <button 
+                    onClick={() => { setEmail('admin@demo.com'); setPassword('admin123'); }}
+                    className="text-left p-2 hover:bg-blue-100 rounded-lg transition-colors group border border-blue-200"
+                  >
+                    <p className="text-[10px] font-bold text-blue-800">Admin</p>
+                    <p className="text-[9px] text-blue-600 truncate">admin@demo.com</p>
+                  </button>
+                  <button 
+                    onClick={() => { setEmail('professor@demo.com'); setPassword('professor123'); }}
+                    className="text-left p-2 hover:bg-blue-100 rounded-lg transition-colors group border border-blue-200"
+                  >
+                    <p className="text-[10px] font-bold text-blue-800">Professeur</p>
+                    <p className="text-[9px] text-blue-600 truncate">professor@demo.com</p>
+                  </button>
+                  <button 
+                    onClick={() => { setEmail('student@demo.com'); setPassword('student123'); }}
+                    className="text-left p-2 hover:bg-blue-100 rounded-lg transition-colors group border border-blue-200"
+                  >
+                    <p className="text-[10px] font-bold text-blue-800">Étudiant</p>
+                    <p className="text-[9px] text-blue-600 truncate">student@demo.com</p>
+                  </button>
+                  <button 
+                    onClick={() => { setEmail('cashier@demo.com'); setPassword('cashier123'); }}
+                    className="text-left p-2 hover:bg-blue-100 rounded-lg transition-colors group border border-blue-200"
+                  >
+                    <p className="text-[10px] font-bold text-blue-800">Caissier</p>
+                    <p className="text-[9px] text-blue-600 truncate">cashier@demo.com</p>
+                  </button>
+                  <button 
+                    onClick={() => { setEmail('chef@demo.com'); setPassword('chef123'); }}
+                    className="text-left p-2 hover:bg-blue-100 rounded-lg transition-colors group border border-blue-200"
+                  >
+                    <p className="text-[10px] font-bold text-blue-800">Chef Dép.</p>
+                    <p className="text-[9px] text-blue-600 truncate">chef@demo.com</p>
+                  </button>
+                </div>
+                <p className="text-[9px] text-blue-400 text-center italic">Le mot de passe pour tous les comptes démo est le nom du rôle + 123 (ex: admin123)</p>
+              </div>
+
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-slate-200" />
@@ -266,40 +301,6 @@ export default function Login() {
                       </p>
                     </div>
                   </div>
-                </div>
-              </div>
-
-              <div className="mt-8">
-                <div className="relative mb-6">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-slate-200" />
-                  </div>
-                  <div className="relative flex justify-center text-sm">
-                    <span className="px-3 bg-white text-slate-400 font-medium">
-                      Accès Démonstration
-                    </span>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <button onClick={() => handleDemoLogin('super_admin')} disabled={isSubmitting} className="col-span-2 flex items-center justify-center gap-2 py-2 px-3 border border-slate-800 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-70">
-                    <ShieldCheck className="w-4 h-4" /> Super Admin SaaS
-                  </button>
-                  <button onClick={() => handleDemoLogin('student')} disabled={isSubmitting} className="flex items-center justify-center gap-2 py-2 px-3 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors disabled:opacity-70">
-                    <GraduationCap className="w-4 h-4" /> Étudiant
-                  </button>
-                  <button onClick={() => handleDemoLogin('professor')} disabled={isSubmitting} className="flex items-center justify-center gap-2 py-2 px-3 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-emerald-600 transition-colors disabled:opacity-70">
-                    <Briefcase className="w-4 h-4" /> Professeur
-                  </button>
-                  <button onClick={() => handleDemoLogin('admin')} disabled={isSubmitting} className="flex items-center justify-center gap-2 py-2 px-3 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-purple-600 transition-colors disabled:opacity-70">
-                    <ShieldCheck className="w-4 h-4" /> Admin
-                  </button>
-                  <button onClick={() => handleDemoLogin('cashier')} disabled={isSubmitting} className="flex items-center justify-center gap-2 py-2 px-3 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-amber-600 transition-colors disabled:opacity-70">
-                    <Calculator className="w-4 h-4" /> Caissier
-                  </button>
-                  <button onClick={() => handleDemoLogin('chef')} disabled={isSubmitting} className="col-span-2 flex items-center justify-center gap-2 py-2 px-3 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-rose-600 transition-colors disabled:opacity-70">
-                    <Award className="w-4 h-4" /> Chef de Département
-                  </button>
                 </div>
               </div>
 

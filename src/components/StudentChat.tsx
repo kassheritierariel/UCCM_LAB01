@@ -29,6 +29,7 @@ export default function StudentChat() {
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState<string | null>(null);
+  const [autoPlayVoice, setAutoPlayVoice] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -103,6 +104,10 @@ export default function StudentChat() {
         };
         
         setAiMessages(prev => [...prev, newAiMessage]);
+        
+        if (autoPlayVoice) {
+          handlePlayAudio(newAiMessage.text, newAiMessage.id);
+        }
       } catch (error) {
         console.error('Error with AI Chat:', error);
         setAiMessages(prev => [...prev, {
@@ -149,9 +154,34 @@ export default function StudentChat() {
 
       const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (base64Audio) {
-        const audio = new Audio(`data:audio/pcm;rate=24000;base64,${base64Audio}`);
-        audio.onended = () => setIsPlayingAudio(null);
-        await audio.play();
+        // Decode base64 to ArrayBuffer
+        const binaryString = window.atob(base64Audio);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        // Convert to Float32 for Web Audio API
+        // Assuming 16-bit PCM (2 bytes per sample)
+        const pcmData = new Int16Array(bytes.buffer);
+        const floatData = new Float32Array(pcmData.length);
+        for (let i = 0; i < pcmData.length; i++) {
+          floatData[i] = pcmData[i] / 32768.0;
+        }
+
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+        const audioBuffer = audioContext.createBuffer(1, floatData.length, 24000);
+        audioBuffer.getChannelData(0).set(floatData);
+
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioContext.destination);
+        source.onended = () => {
+          setIsPlayingAudio(null);
+          audioContext.close();
+        };
+        source.start();
       } else {
         setIsPlayingAudio(null);
       }
@@ -208,6 +238,18 @@ export default function StudentChat() {
             <h3 className="font-bold text-slate-800">{activeChat === 'ai' ? 'Assistant IA' : 'Campus Général'}</h3>
             <p className="text-xs text-slate-500">{activeChat === 'ai' ? 'En ligne' : '120 participants'}</p>
           </div>
+          
+          {activeChat === 'ai' && (
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-xs text-slate-500 font-medium hidden sm:inline">Lecture auto</span>
+              <button 
+                onClick={() => setAutoPlayVoice(!autoPlayVoice)}
+                className={`w-10 h-5 rounded-full transition-colors relative ${autoPlayVoice ? 'bg-blue-600' : 'bg-slate-300'}`}
+              >
+                <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${autoPlayVoice ? 'left-6' : 'left-1'}`} />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Messages */}

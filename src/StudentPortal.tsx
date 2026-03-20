@@ -1,12 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from './AuthContext';
+import { handleFirestoreError, OperationType } from './utils/firestoreErrorHandler';
 import { BookOpen, Bell, LogOut, Upload, FileText, CheckCircle, Clock, AlertCircle, MessageCircle, CreditCard, Smartphone, Shield, Printer, X, QrCode, Share2, Copy, ExternalLink, Download } from 'lucide-react';
 import StudentChat from './components/StudentChat';
 import StudentWorkspace from './components/StudentWorkspace';
 import { QRCodeSVG } from 'qrcode.react';
 import Logo from './components/Logo';
 import { db } from './firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
 
 export default function StudentPortal() {
   const { user, signOut } = useAuth();
@@ -19,9 +22,22 @@ export default function StudentPortal() {
   const [generatedQR, setGeneratedQR] = useState<string | null>(null);
   const qrRef = useRef<HTMLDivElement>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'mobile' | 'card' | 'chariow' | null>(null);
+  
+  // Document Submission State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [docTitle, setDocTitle] = useState('');
+  const [docType, setDocType] = useState<'tfc' | 'memoire' | 'rapport' | 'autre'>('tfc');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasPaidDeposit, setHasPaidDeposit] = useState(false);
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000);
+  };
 
   useEffect(() => {
     if (!user?.tenantId) return;
@@ -111,12 +127,49 @@ export default function StudentPortal() {
     fileInputRef.current?.click();
   };
 
-  const handleSubmit = () => {
-    if (selectedFile) {
-      // Handle file upload logic here
-      console.log('Submitting file:', selectedFile.name);
-      // Reset after submission
-      // setSelectedFile(null);
+  const handleSubmit = async () => {
+    if (!selectedFile) {
+      showToast('Veuillez sélectionner un fichier.', 'error');
+      return;
+    }
+    if (!docTitle.trim()) {
+      showToast('Veuillez saisir un titre pour votre document.', 'error');
+      return;
+    }
+    if (!hasPaidDeposit) {
+      showToast('Vous devez payer les frais de dépôt avant de soumettre.', 'error');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      // In a real app, we would upload the file to Firebase Storage here
+      // For this demo, we'll use a placeholder URL
+      const fileUrl = `https://firebasestorage.googleapis.com/v0/b/demo/o/${encodeURIComponent(selectedFile.name)}?alt=media`;
+
+      await addDoc(collection(db, 'documents'), {
+        title: docTitle,
+        type: docType,
+        studentName: user?.name || 'Étudiant Anonyme',
+        studentId: user?.uid || '',
+        faculty: user?.faculty || 'Non spécifiée',
+        promotion: user?.promotion || 'Non spécifiée',
+        status: 'pending',
+        fileUrl: fileUrl,
+        submittedAt: serverTimestamp(),
+        tenantId: user?.tenantId || 'SYSTEM'
+      });
+
+      showToast('Votre document a été soumis avec succès et est en attente de validation.', 'success');
+      setSelectedFile(null);
+      setDocTitle('');
+      // Reset file input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'documents');
+      showToast('Une erreur est survenue lors de la soumission.', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -236,14 +289,33 @@ export default function StudentPortal() {
                 <div className="flex items-start gap-4">
                   <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold shrink-0">1</div>
                   <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-slate-800">Type de document</h3>
-                    <p className="text-sm text-slate-500 mt-1 mb-4">Sélectionnez le type de document que vous souhaitez soumettre.</p>
-                    <select className="w-full max-w-md px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
-                      <option value="tfc">Travail de Fin de Cycle (TFC)</option>
-                      <option value="memoire">Mémoire</option>
-                      <option value="rapport">Rapport de Stage</option>
-                      <option value="autre">Autre Document</option>
-                    </select>
+                    <h3 className="text-lg font-semibold text-slate-800">Détails du document</h3>
+                    <p className="text-sm text-slate-500 mt-1 mb-4">Saisissez le titre et sélectionnez le type de document.</p>
+                    <div className="space-y-4 max-w-md">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Titre du document</label>
+                        <input 
+                          type="text" 
+                          value={docTitle}
+                          onChange={(e) => setDocTitle(e.target.value)}
+                          placeholder="Ex: Impact de l'IA sur la gestion académique"
+                          className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Type de document</label>
+                        <select 
+                          value={docType}
+                          onChange={(e) => setDocType(e.target.value as any)}
+                          className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        >
+                          <option value="tfc">Travail de Fin de Cycle (TFC)</option>
+                          <option value="memoire">Mémoire</option>
+                          <option value="rapport">Rapport de Stage</option>
+                          <option value="autre">Autre Document</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -252,9 +324,19 @@ export default function StudentPortal() {
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-slate-800">Paiement des frais de dépôt</h3>
                     <p className="text-sm text-slate-500 mt-1 mb-4">Vous devez vous acquitter des frais de dépôt avant de pouvoir soumettre votre document.</p>
-                    <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                      Payer maintenant (50.00 $)
-                    </button>
+                    {hasPaidDeposit ? (
+                      <div className="flex items-center gap-2 text-emerald-600 font-medium bg-emerald-50 px-4 py-2 rounded-lg w-fit">
+                        <CheckCircle className="w-5 h-5" />
+                        Frais payés (50.00 $)
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => setHasPaidDeposit(true)}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        Payer maintenant (50.00 $)
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -296,8 +378,14 @@ export default function StudentPortal() {
                             </button>
                             <button 
                               onClick={handleSubmit}
-                              className="text-sm text-white bg-emerald-600 hover:bg-emerald-700 font-medium px-4 py-1.5 rounded-lg shadow-sm"
+                              disabled={isSubmitting}
+                              className="text-sm text-white bg-emerald-600 hover:bg-emerald-700 font-medium px-4 py-1.5 rounded-lg shadow-sm disabled:opacity-50 flex items-center gap-2"
                             >
+                              {isSubmitting ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              ) : (
+                                <Upload className="w-4 h-4" />
+                              )}
                               Soumettre
                             </button>
                           </div>
@@ -725,6 +813,15 @@ export default function StudentPortal() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 z-[100] animate-in fade-in slide-in-from-bottom-4 ${
+          toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+        }`}>
+          {toast.type === 'success' ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+          <p className="font-medium">{toast.message}</p>
         </div>
       )}
     </div>

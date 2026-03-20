@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, query, onSnapshot, orderBy, doc, updateDoc, addDoc, serverTimestamp, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, doc, updateDoc, addDoc, serverTimestamp, where, limit } from 'firebase/firestore';
 import { 
   Search, Filter, CircleDollarSign, CheckCircle, XCircle, Clock, 
-  Download, Printer, Plus, AlertCircle, X, CreditCard, Receipt, TrendingUp, Calendar
+  Download, Printer, Plus, AlertCircle, X, CreditCard, Receipt, TrendingUp, Calendar,
+  User, DollarSign, Tag, Landmark, Check
 } from 'lucide-react';
 import { format, isAfter, isBefore, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '../AuthContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { QRCodeSVG } from 'qrcode.react';
+import Modal from './Modal';
 
 interface Payment {
   id: string;
@@ -85,9 +87,9 @@ export default function PaymentsManager() {
 
     let q;
     if (user.role === 'super_admin') {
-      q = query(collection(db, 'payments'), orderBy('createdAt', 'desc'));
+      q = query(collection(db, 'payments'), orderBy('createdAt', 'desc'), limit(100));
     } else {
-      q = query(collection(db, 'payments'), where('tenantId', '==', user.tenantId), orderBy('createdAt', 'desc'));
+      q = query(collection(db, 'payments'), where('tenantId', '==', user.tenantId), orderBy('createdAt', 'desc'), limit(100));
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -566,185 +568,189 @@ export default function PaymentsManager() {
       </div>
 
       {/* Add Payment Modal */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h3 className="text-lg font-bold text-slate-800">Saisir un encaissement</h3>
-              <button 
-                onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+      <Modal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        title="Saisir un encaissement"
+        maxWidth="max-w-md"
+        footer={
+          <>
+            <button 
+              onClick={() => setIsAddModalOpen(false)}
+              className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+            >
+              Annuler
+            </button>
+            <button 
+              onClick={(e) => {
+                const form = document.getElementById('add-payment-form') as HTMLFormElement;
+                if (form) form.requestSubmit();
+              }}
+              disabled={isSubmitting}
+              className="px-6 py-2 text-sm font-bold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all flex items-center gap-2 disabled:opacity-50 shadow-sm hover:shadow-md"
+            >
+              {isSubmitting ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <Check className="w-4 h-4" />}
+              Enregistrer
+            </button>
+          </>
+        }
+      >
+        <form id="add-payment-form" onSubmit={handleAddPayment} className="space-y-5">
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Nom de l'étudiant *</label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input 
+                type="text" 
+                required
+                value={newPayment.studentName}
+                onChange={(e) => setNewPayment({...newPayment, studentName: e.target.value})}
+                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all"
+                placeholder="Ex: Jean Dupont"
+              />
             </div>
-            
-            <form onSubmit={handleAddPayment} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Nom de l'étudiant *</label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Matricule</label>
+              <div className="relative">
+                <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input 
                   type="text" 
-                  required
-                  value={newPayment.studentName}
-                  onChange={(e) => setNewPayment({...newPayment, studentName: e.target.value})}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  placeholder="Ex: Jean Dupont"
+                  value={newPayment.studentId}
+                  onChange={(e) => setNewPayment({...newPayment, studentId: e.target.value})}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all"
+                  placeholder="Optionnel"
                 />
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Matricule</label>
-                  <input 
-                    type="text" 
-                    value={newPayment.studentId}
-                    onChange={(e) => setNewPayment({...newPayment, studentId: e.target.value})}
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                    placeholder="Optionnel"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Montant (USD) *</label>
-                  <input 
-                    type="number" 
-                    required
-                    min="0"
-                    step="0.01"
-                    value={newPayment.amount}
-                    onChange={(e) => setNewPayment({...newPayment, amount: e.target.value})}
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all font-mono"
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Type de frais</label>
-                <select 
-                  value={newPayment.type}
-                  onChange={(e) => setNewPayment({...newPayment, type: e.target.value as any})}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                >
-                  <option value="tuition">Frais Académiques (Minerval)</option>
-                  <option value="library">Frais de Bibliothèque</option>
-                  <option value="exam">Frais d'Examen</option>
-                  <option value="deposit">Frais de Dépôt (TFC/Mémoire/Rapport/Autre)</option>
-                  <option value="other">Autres Frais</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Méthode de paiement</label>
-                <select 
-                  value={newPayment.paymentMethod}
-                  onChange={(e) => setNewPayment({...newPayment, paymentMethod: e.target.value as any})}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                >
-                  <option value="cash">Espèces (Caisse)</option>
-                  <option value="transfer">Virement Bancaire</option>
-                  <option value="mobile_money">Mobile Money (M-PESA)</option>
-                  <option value="chariow">Chariow</option>
-                </select>
-              </div>
-
-              <div className="pt-4 flex gap-3">
-                <button 
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
-                >
-                  Annuler
-                </button>
-                <button 
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:opacity-70 flex items-center justify-center"
-                >
-                  {isSubmitting ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  ) : (
-                    'Enregistrer'
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Receipt Modal */}
-      {selectedPaymentForReceipt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 print:hidden">
-              <h3 className="text-lg font-bold text-slate-800">Reçu de paiement</h3>
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => window.print()}
-                  className="text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium"
-                >
-                  <Printer className="w-4 h-4" />
-                  Imprimer
-                </button>
-                <button 
-                  onClick={() => setSelectedPaymentForReceipt(null)}
-                  className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-100 transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Montant (USD) *</label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input 
+                  type="number" 
+                  required
+                  min="0"
+                  step="0.01"
+                  value={newPayment.amount}
+                  onChange={(e) => setNewPayment({...newPayment, amount: e.target.value})}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all font-mono"
+                  placeholder="0.00"
+                />
               </div>
             </div>
-            
-            <div className="p-8 print:p-0" id="receipt-content">
-              <div className="text-center mb-6 border-b border-slate-200 pb-6">
-                <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <span className="text-2xl font-bold text-white">AI</span>
-                </div>
-                <h2 className="text-2xl font-bold text-slate-800">AI Studio University</h2>
-                <p className="text-sm text-slate-500 mt-1">Reçu Officiel de Paiement</p>
-              </div>
+          </div>
 
-              <div className="space-y-4 mb-8">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-500">Référence</span>
-                  <span className="text-sm font-mono font-medium text-slate-800">
-                    {selectedPaymentForReceipt.reference || selectedPaymentForReceipt.id.substring(0, 8).toUpperCase()}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-500">Date</span>
-                  <span className="text-sm font-medium text-slate-800">
-                    {selectedPaymentForReceipt.createdAt ? format(selectedPaymentForReceipt.createdAt.toDate(), 'dd MMMM yyyy HH:mm', { locale: fr }) : 'N/A'}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-500">Étudiant</span>
-                  <span className="text-sm font-medium text-slate-800">{selectedPaymentForReceipt.studentName}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-500">Matricule</span>
-                  <span className="text-sm font-medium text-slate-800">{selectedPaymentForReceipt.studentId || 'N/A'}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-500">Motif</span>
-                  <span className="text-sm font-medium text-slate-800">
-                    {typeConfig[selectedPaymentForReceipt.type]?.label || 'Autre'}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-500">Méthode</span>
-                  <span className="text-sm font-medium uppercase text-slate-800">
-                    {selectedPaymentForReceipt.paymentMethod?.replace('_', ' ')}
-                  </span>
-                </div>
-              </div>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Type de frais</label>
+            <div className="relative">
+              <Receipt className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <select 
+                value={newPayment.type}
+                onChange={(e) => setNewPayment({...newPayment, type: e.target.value as any})}
+                className="w-full pl-10 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all appearance-none cursor-pointer"
+              >
+                <option value="tuition">Frais Académiques (Minerval)</option>
+                <option value="library">Frais de Bibliothèque</option>
+                <option value="exam">Frais d'Examen</option>
+                <option value="deposit">Frais de Dépôt (TFC/Mémoire/Rapport/Autre)</option>
+                <option value="other">Autres Frais</option>
+              </select>
+            </div>
+          </div>
 
-              <div className="bg-slate-50 rounded-xl p-4 mb-8 flex justify-between items-center border border-slate-100">
-                <span className="font-bold text-slate-700">Montant Total</span>
-                <span className="text-2xl font-bold text-blue-600">${selectedPaymentForReceipt.amount?.toFixed(2)}</span>
-              </div>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Méthode de paiement</label>
+            <div className="relative">
+              <Landmark className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <select 
+                value={newPayment.paymentMethod}
+                onChange={(e) => setNewPayment({...newPayment, paymentMethod: e.target.value as any})}
+                className="w-full pl-10 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all appearance-none cursor-pointer"
+              >
+                <option value="cash">Espèces (Caisse)</option>
+                <option value="transfer">Virement Bancaire</option>
+                <option value="mobile_money">Mobile Money (M-PESA)</option>
+                <option value="chariow">Chariow</option>
+              </select>
+            </div>
+          </div>
+        </form>
+      </Modal>
 
-              <div className="flex flex-col items-center justify-center pt-6 border-t border-slate-200">
+      {/* Receipt Modal */}
+      <Modal
+        isOpen={!!selectedPaymentForReceipt}
+        onClose={() => setSelectedPaymentForReceipt(null)}
+        title="Reçu de paiement"
+        maxWidth="max-w-md"
+        footer={
+          <div className="flex w-full justify-between items-center px-2">
+            <p className="text-[10px] text-slate-400 font-medium italic">Document généré par AI Studio University</p>
+            <button 
+              onClick={() => window.print()}
+              className="px-6 py-2 text-sm font-bold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all flex items-center gap-2 shadow-sm hover:shadow-md"
+            >
+              <Printer className="w-4 h-4" />
+              Imprimer
+            </button>
+          </div>
+        }
+      >
+        {selectedPaymentForReceipt && (
+          <div className="p-4 print:p-0" id="receipt-content">
+            <div className="text-center mb-8 border-b border-slate-100 pb-8">
+              <div className="w-20 h-20 bg-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-200">
+                <span className="text-3xl font-black text-white tracking-tighter">AI</span>
+              </div>
+              <h2 className="text-2xl font-black text-slate-800 tracking-tight">AI Studio University</h2>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mt-2">Reçu Officiel</p>
+            </div>
+
+            <div className="space-y-4 mb-8">
+              <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Référence</span>
+                <span className="text-sm font-mono font-bold text-slate-800">
+                  {selectedPaymentForReceipt.reference || selectedPaymentForReceipt.id.substring(0, 8).toUpperCase()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Date</span>
+                <span className="text-sm font-bold text-slate-800">
+                  {selectedPaymentForReceipt.createdAt ? format(selectedPaymentForReceipt.createdAt.toDate(), 'dd MMMM yyyy HH:mm', { locale: fr }) : 'N/A'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Étudiant</span>
+                <span className="text-sm font-bold text-slate-800">{selectedPaymentForReceipt.studentName}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Matricule</span>
+                <span className="text-sm font-bold text-slate-800">{selectedPaymentForReceipt.studentId || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Motif</span>
+                <span className="text-sm font-bold text-slate-800">
+                  {typeConfig[selectedPaymentForReceipt.type]?.label || 'Autre'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Méthode</span>
+                <span className="text-sm font-bold uppercase text-slate-800">
+                  {selectedPaymentForReceipt.paymentMethod?.replace('_', ' ')}
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-2xl p-6 mb-8 flex justify-between items-center border border-slate-100 shadow-inner">
+              <span className="font-bold text-slate-500 uppercase tracking-widest text-xs">Montant Total</span>
+              <span className="text-3xl font-black text-blue-600 tracking-tight">${selectedPaymentForReceipt.amount?.toFixed(2)}</span>
+            </div>
+
+            <div className="flex flex-col items-center justify-center pt-8 border-t border-slate-100">
+              <div className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm">
                 <QRCodeSVG 
                   value={JSON.stringify({
                     id: selectedPaymentForReceipt.id,
@@ -753,52 +759,54 @@ export default function PaymentsManager() {
                     amount: selectedPaymentForReceipt.amount,
                     date: selectedPaymentForReceipt.createdAt ? selectedPaymentForReceipt.createdAt.toDate().toISOString() : new Date().toISOString()
                   })} 
-                  size={100}
+                  size={120}
                   level="M"
-                  includeMargin={true}
+                  includeMargin={false}
                 />
-                <p className="text-[10px] text-slate-400 mt-2 text-center max-w-[200px]">
-                  Scannez ce code QR pour vérifier l'authenticité de ce reçu.
-                </p>
               </div>
+              <p className="text-[10px] text-slate-400 mt-4 text-center max-w-[220px] font-medium leading-relaxed">
+                Scannez ce code QR pour vérifier l'authenticité de ce reçu sur le portail officiel.
+              </p>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* Confirmation Modal */}
-      {confirmAction && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                <AlertCircle className="w-6 h-6 text-red-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">Confirmation</h3>
-                <p className="text-slate-600 mt-1">{confirmAction.message}</p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setConfirmAction(null)}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={() => {
-                  confirmAction.onConfirm();
-                  setConfirmAction(null);
-                }}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
-              >
-                Confirmer
-              </button>
-            </div>
+      <Modal
+        isOpen={!!confirmAction}
+        onClose={() => setConfirmAction(null)}
+        title="Confirmation Requise"
+        maxWidth="max-w-sm"
+        footer={
+          <>
+            <button 
+              onClick={() => setConfirmAction(null)}
+              className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+            >
+              Annuler
+            </button>
+            <button 
+              onClick={() => {
+                confirmAction?.onConfirm();
+                setConfirmAction(null);
+              }}
+              className="px-6 py-2 text-sm font-bold bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-all shadow-sm hover:shadow-md"
+            >
+              Confirmer
+            </button>
+          </>
+        }
+      >
+        <div className="flex flex-col items-center text-center space-y-4">
+          <div className="w-16 h-16 rounded-full bg-rose-50 flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-rose-600" />
           </div>
+          <p className="text-slate-600 font-medium leading-relaxed">
+            {confirmAction?.message}
+          </p>
         </div>
-      )}
+      </Modal>
 
       {/* Toast Message */}
       {toastMessage && (

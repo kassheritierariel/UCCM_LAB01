@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
-import { collection, query, onSnapshot, orderBy, doc, updateDoc, where, deleteField, getDoc, addDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, doc, updateDoc, where, deleteField, getDoc, addDoc, deleteDoc, serverTimestamp, limit } from 'firebase/firestore';
 import { 
   Search, Filter, Edit2, GraduationCap, X, Mail, Calendar, ChevronUp, ChevronDown, Phone, MapPin, Hash, Building2, BookOpen, QrCode, Printer, FileBadge, Download, User, AlertCircle, Plus
 } from 'lucide-react';
@@ -116,9 +116,9 @@ export default function StudentManager({ view = 'students' }: { view?: 'students
 
     let q;
     if (user.role === 'super_admin') {
-      q = query(collection(db, 'users'), where('role', '==', 'student'), orderBy('createdAt', 'desc'));
+      q = query(collection(db, 'users'), where('role', '==', 'student'), orderBy('createdAt', 'desc'), limit(100));
     } else {
-      q = query(collection(db, 'users'), where('tenantId', '==', user.tenantId), where('role', '==', 'student'), orderBy('createdAt', 'desc'));
+      q = query(collection(db, 'users'), where('tenantId', '==', user.tenantId), where('role', '==', 'student'), orderBy('createdAt', 'desc'), limit(100));
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {

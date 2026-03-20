@@ -107,6 +107,32 @@
         "plan": { "type": "string", "enum": ["basic", "pro", "enterprise"] },
         "status": { "type": "string", "enum": ["active", "suspended", "trial", "pending"] },
         "features": { "type": "array", "items": { "type": "string" }, "description": "List of enabled features" },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "address": { "type": "string" },
+            "phone": { "type": "string" },
+            "logoUrl": { "type": "string" },
+            "primaryColor": { "type": "string" },
+            "rolePermissions": {
+              "type": "object",
+              "description": "Mapping of role names to their allowed permissions"
+            },
+            "customRoles": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string" },
+                  "name": { "type": "string" },
+                  "permissions": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["id", "name", "permissions"]
+              }
+            },
+            "paymentMethods": { "type": "object" }
+          }
+        },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "domain", "plan", "status", "createdAt"]
