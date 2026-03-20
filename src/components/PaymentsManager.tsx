@@ -47,6 +47,10 @@ export default function PaymentsManager() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   
+  // Date range filter for the list
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  
   // Date range state for the chart
   const [chartStartDate, setChartStartDate] = useState<string>(
     format(subMonths(new Date(), 6), 'yyyy-MM-dd')
@@ -105,7 +109,26 @@ export default function PaymentsManager() {
                           p.reference?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
     const matchesType = typeFilter === 'all' || p.type === typeFilter;
-    return matchesSearch && matchesStatus && matchesType;
+    
+    // Date range filter
+    let matchesDate = true;
+    if (p.createdAt) {
+      const date = p.createdAt.toDate ? p.createdAt.toDate() : new Date(p.createdAt);
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        if (isBefore(date, start)) matchesDate = false;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        if (isAfter(date, end)) matchesDate = false;
+      }
+    } else if (startDate || endDate) {
+      matchesDate = false;
+    }
+
+    return matchesSearch && matchesStatus && matchesType && matchesDate;
   });
 
   const handleUpdateStatus = async (paymentId: string, newStatus: 'completed' | 'failed') => {
@@ -366,7 +389,7 @@ export default function PaymentsManager() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col lg:flex-row gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
           <input 
@@ -377,33 +400,63 @@ export default function PaymentsManager() {
             className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm"
           />
         </div>
-        <div className="relative min-w-[200px]">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none cursor-pointer"
-          >
-            <option value="all">Tous les types</option>
-            <option value="tuition">Frais Académiques</option>
-            <option value="library">Frais Bibliothèque</option>
-            <option value="exam">Frais d'Examen</option>
-            <option value="deposit">Frais de Dépôt</option>
-            <option value="other">Autres Frais</option>
-          </select>
+        
+        <div className="flex flex-wrap sm:flex-nowrap gap-4">
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+            <Calendar className="w-4 h-4 text-slate-400" />
+            <div className="flex flex-col">
+              <span className="text-[10px] text-slate-400 uppercase font-bold">Du</span>
+              <input 
+                type="date" 
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="bg-transparent border-none outline-none text-xs text-slate-700 w-28"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+            <Calendar className="w-4 h-4 text-slate-400" />
+            <div className="flex flex-col">
+              <span className="text-[10px] text-slate-400 uppercase font-bold">Au</span>
+              <input 
+                type="date" 
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="bg-transparent border-none outline-none text-xs text-slate-700 w-28"
+              />
+            </div>
+          </div>
         </div>
-        <div className="relative min-w-[200px]">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none cursor-pointer"
-          >
-            <option value="all">Tous les statuts</option>
-            <option value="completed">Complétés</option>
-            <option value="pending">En attente</option>
-            <option value="failed">Échoués</option>
-          </select>
+
+        <div className="flex gap-4">
+          <div className="relative min-w-[160px] flex-1">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none cursor-pointer"
+            >
+              <option value="all">Tous les types</option>
+              <option value="tuition">Frais Académiques</option>
+              <option value="library">Frais Bibliothèque</option>
+              <option value="exam">Frais d'Examen</option>
+              <option value="deposit">Frais de Dépôt</option>
+              <option value="other">Autres Frais</option>
+            </select>
+          </div>
+          <div className="relative min-w-[160px] flex-1">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none cursor-pointer"
+            >
+              <option value="all">Tous les statuts</option>
+              <option value="completed">Complétés</option>
+              <option value="pending">En attente</option>
+              <option value="failed">Échoués</option>
+            </select>
+          </div>
         </div>
       </div>
 

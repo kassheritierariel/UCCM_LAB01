@@ -1,20 +1,60 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from './AuthContext';
-import { BookOpen, Bell, LogOut, Upload, FileText, CheckCircle, Clock, AlertCircle, MessageCircle, CreditCard, Smartphone, Shield, Printer, X } from 'lucide-react';
+import { BookOpen, Bell, LogOut, Upload, FileText, CheckCircle, Clock, AlertCircle, MessageCircle, CreditCard, Smartphone, Shield, Printer, X, QrCode, Share2, Copy, ExternalLink, Download } from 'lucide-react';
 import StudentChat from './components/StudentChat';
 import StudentWorkspace from './components/StudentWorkspace';
 import { QRCodeSVG } from 'qrcode.react';
 import Logo from './components/Logo';
+import { db } from './firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 export default function StudentPortal() {
   const { user, signOut } = useAuth();
-  const [activeTab, setActiveTab] = useState<'resources' | 'deposit' | 'ai' | 'payments' | 'workspace'>('resources');
+  const [tenantSettings, setTenantSettings] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<string>('resources');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [showQRCodeModal, setShowQRCodeModal] = useState(false);
+  const [qrInputData, setQrInputData] = useState('');
+  const [generatedQR, setGeneratedQR] = useState<string | null>(null);
+  const qrRef = useRef<HTMLDivElement>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'mobile' | 'card' | 'chariow' | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!user?.tenantId) return;
+    const unsubscribe = onSnapshot(doc(db, 'institutions', user.tenantId), (doc) => {
+      if (doc.exists()) {
+        setTenantSettings(doc.data());
+      }
+    });
+    return () => unsubscribe();
+  }, [user?.tenantId]);
+
+  const tabs = [
+    { id: 'resources', name: 'Ressources & Cours', icon: null, feature: 'library' },
+    { id: 'deposit', name: 'Dépôt Documents', icon: null, feature: 'deposit' },
+    { id: 'payments', name: 'Paiements', icon: CreditCard, feature: 'payments' },
+    { id: 'ai', name: 'Chat & IA', icon: MessageCircle, feature: 'ai' },
+    { id: 'workspace', name: 'Espace de Travail', icon: BookOpen, feature: 'workspace' },
+  ];
+
+  const allowedTabs = tabs.filter(tab => {
+    if (tenantSettings?.settings?.rolePermissions?.student) {
+      return tenantSettings.settings.rolePermissions.student.includes(tab.feature);
+    }
+    // Default fallback if no permissions defined
+    return true;
+  });
+
+  // Ensure activeTab is valid
+  useEffect(() => {
+    if (allowedTabs.length > 0 && !allowedTabs.find(t => t.id === activeTab)) {
+      setActiveTab(allowedTabs[0].id);
+    }
+  }, [allowedTabs, activeTab]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -80,6 +120,43 @@ export default function StudentPortal() {
     }
   };
 
+  const handleGenerateQR = (data?: string) => {
+    const dataToEncode = data || qrInputData;
+    if (dataToEncode.trim()) {
+      setGeneratedQR(dataToEncode);
+      setShowQRCodeModal(true);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    // Could add a toast notification here
+  };
+
+  const downloadQRCode = () => {
+    if (!qrRef.current) return;
+    const svg = qrRef.current.querySelector('svg');
+    if (!svg) return;
+
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx?.drawImage(img, 0, 0);
+      const pngFile = canvas.toDataURL('image/png');
+      const downloadLink = document.createElement('a');
+      downloadLink.download = `QR_Code_${user?.name || 'student'}.png`;
+      downloadLink.href = pngFile;
+      downloadLink.click();
+    };
+
+    img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
+  };
+
   return (
     <div className="bg-slate-50 text-slate-900 font-sans antialiased min-h-screen">
       <header className="bg-slate-900 text-white p-4 sticky top-0 z-50 shadow-md">
@@ -96,6 +173,13 @@ export default function StudentPortal() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setShowQRCodeModal(true)}
+              className="p-2 rounded-full hover:bg-slate-700 transition-colors text-slate-300 hover:text-white"
+              title="Générer un QR Code"
+            >
+              <QrCode className="h-6 w-6" />
+            </button>
             <button className="relative p-2 rounded-full hover:bg-slate-700 transition-colors">
               <Bell className="h-6 w-6" />
             </button>
@@ -114,40 +198,17 @@ export default function StudentPortal() {
       </header>
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
-        <div className="flex gap-4 border-b border-slate-200 pb-2">
-          <button 
-            onClick={() => setActiveTab('resources')}
-            className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors ${activeTab === 'resources' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
-          >
-            Ressources & Cours
-          </button>
-          <button 
-            onClick={() => setActiveTab('deposit')}
-            className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors ${activeTab === 'deposit' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
-          >
-            Dépôt Documents
-          </button>
-          <button 
-            onClick={() => setActiveTab('payments')}
-            className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors flex items-center gap-2 ${activeTab === 'payments' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
-          >
-            <CreditCard className="w-4 h-4" />
-            Paiements
-          </button>
-          <button 
-            onClick={() => setActiveTab('ai')}
-            className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors flex items-center gap-2 ${activeTab === 'ai' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
-          >
-            <MessageCircle className="w-4 h-4" />
-            Chat & IA
-          </button>
-          <button 
-            onClick={() => setActiveTab('workspace')}
-            className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors flex items-center gap-2 ${activeTab === 'workspace' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
-          >
-            <BookOpen className="w-4 h-4" />
-            Espace de Travail
-          </button>
+        <div className="flex gap-4 border-b border-slate-200 pb-2 overflow-x-auto">
+          {allowedTabs.map(tab => (
+            <button 
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === tab.id ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
+            >
+              {tab.icon && <tab.icon className="w-4 h-4" />}
+              {tab.name}
+            </button>
+          ))}
         </div>
 
         {activeTab === 'workspace' && (
@@ -333,6 +394,123 @@ export default function StudentPortal() {
           </div>
         )}
       </main>
+      {/* QR Code Generator Modal */}
+      {showQRCodeModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[60] p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-600 rounded-xl">
+                  <QrCode className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Générateur de QR Code</h3>
+                  <p className="text-xs text-slate-500">Créez et partagez des codes QR instantanément</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => { setShowQRCodeModal(false); setGeneratedQR(null); setQrInputData(''); }}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-8 overflow-y-auto space-y-8">
+              {!generatedQR ? (
+                <div className="space-y-6">
+                  <div className="space-y-3">
+                    <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-blue-500" />
+                      Données à encoder
+                    </label>
+                    <textarea 
+                      value={qrInputData}
+                      onChange={(e) => setQrInputData(e.target.value)}
+                      placeholder="Saisissez un texte, une URL ou des informations..."
+                      className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all min-h-[120px] resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <button 
+                      onClick={() => handleGenerateQR(`Étudiant: ${user?.name}\nID: ${user?.uid}\nEmail: ${user?.email}`)}
+                      className="flex items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-slate-600 hover:text-blue-700 text-xs font-medium transition-all"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      Mes Infos
+                    </button>
+                    <button 
+                      onClick={() => handleGenerateQR(window.location.origin)}
+                      className="flex items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-slate-600 hover:text-blue-700 text-xs font-medium transition-all"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Lien Portail
+                    </button>
+                  </div>
+
+                  <button 
+                    onClick={() => handleGenerateQR()}
+                    disabled={!qrInputData.trim()}
+                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
+                  >
+                    Générer le QR Code
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center space-y-8 animate-in zoom-in-95 duration-300">
+                  <div ref={qrRef} className="p-6 bg-white rounded-3xl shadow-inner border border-slate-100 flex items-center justify-center">
+                    <QRCodeSVG 
+                      value={generatedQR} 
+                      size={220}
+                      level="H"
+                      includeMargin={true}
+                    />
+                  </div>
+
+                  <div className="w-full space-y-4">
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Contenu encodé</p>
+                      <p className="text-sm text-slate-700 break-all line-clamp-3">{generatedQR}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={() => copyToClipboard(generatedQR)}
+                        className="flex items-center justify-center gap-2 py-3.5 rounded-2xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold transition-all"
+                      >
+                        <Copy className="w-4 h-4" />
+                        Copier
+                      </button>
+                      <button 
+                        onClick={downloadQRCode}
+                        className="flex items-center justify-center gap-2 py-3.5 rounded-2xl border border-blue-200 bg-blue-50 text-blue-700 font-bold transition-all"
+                      >
+                        <Download className="w-4 h-4" />
+                        Télécharger
+                      </button>
+                    </div>
+                    
+                    <button 
+                      onClick={() => setGeneratedQR(null)}
+                      className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold transition-all"
+                    >
+                      Nouveau
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 bg-slate-50 border-t border-slate-100 text-center">
+              <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest">
+                Sécurisé par AI Studio University
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Payment Modal */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">

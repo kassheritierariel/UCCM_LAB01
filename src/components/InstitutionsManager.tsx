@@ -342,6 +342,7 @@ export default function InstitutionsManager() {
                   const statusInfo = statusConfig[inst.status] || statusConfig.active;
                   const StatusIcon = statusInfo.icon;
                   const activeUsersCount = userCounts[inst.id] || 0;
+                  const activeFeatures = inst.features || [];
                   
                   return (
                     <tr key={inst.id} className="hover:bg-slate-50/50 transition-colors group">
@@ -357,9 +358,21 @@ export default function InstitutionsManager() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${planInfo.bg} ${planInfo.color} ${planInfo.border}`}>
-                          {planInfo.label}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border w-fit ${planInfo.bg} ${planInfo.color} ${planInfo.border}`}>
+                            {planInfo.label}
+                          </span>
+                          <div className="flex flex-wrap gap-1 mt-1 max-w-[200px]">
+                            {activeFeatures.slice(0, 3).map(f => (
+                              <span key={f} className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
+                                {AVAILABLE_FEATURES.find(af => af.id === f)?.label.split(' ')[0] || f}
+                              </span>
+                            ))}
+                            {activeFeatures.length > 3 && (
+                              <span className="text-[9px] text-slate-400">+{activeFeatures.length - 3}</span>
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col gap-1">

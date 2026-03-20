@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
-import { collection, query, onSnapshot, orderBy, doc, updateDoc, where, deleteField, getDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, doc, updateDoc, where, deleteField, getDoc, addDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { 
-  Search, Filter, Edit2, GraduationCap, X, Mail, Calendar, ChevronUp, ChevronDown, Phone, MapPin, Hash, Building2, BookOpen, QrCode, Printer, FileBadge, Download, User, AlertCircle
+  Search, Filter, Edit2, GraduationCap, X, Mail, Calendar, ChevronUp, ChevronDown, Phone, MapPin, Hash, Building2, BookOpen, QrCode, Printer, FileBadge, Download, User, AlertCircle, Plus
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -30,7 +30,7 @@ interface Student {
   libraryAccess?: boolean;
 }
 
-export default function StudentManager() {
+export default function StudentManager({ view = 'students' }: { view?: 'students' | 'courses' }) {
   const { user } = useAuth();
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +51,21 @@ export default function StudentManager() {
   const [groupsPerPage, setGroupsPerPage] = useState(9);
   
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [isAddingStudent, setIsAddingStudent] = useState(false);
+  const [newStudent, setNewStudent] = useState<Partial<Student>>({
+    name: '',
+    email: '',
+    role: 'student',
+    faculty: '',
+    promotion: '',
+    campus: '',
+    specialty: '',
+    matricule: '',
+    status: 'active',
+    phone: '',
+    address: '',
+    libraryAccess: false
+  });
   const [isSaving, setIsSaving] = useState(false);
   
   const [generatingIdFor, setGeneratingIdFor] = useState<Student | null>(null);
@@ -140,9 +155,27 @@ export default function StudentManager() {
   }, [user]);
 
   const uniqueFaculties = Array.from(new Set(students.map(s => s.faculty).filter(Boolean))) as string[];
-  const uniquePromotions = Array.from(new Set(students.map(s => s.promotion).filter(Boolean))) as string[];
-  const uniqueCampuses = Array.from(new Set(students.map(s => s.campus).filter(Boolean))) as string[];
-  const uniqueSpecialties = Array.from(new Set(students.map(s => s.specialty).filter(Boolean))) as string[];
+  
+  const uniquePromotions = Array.from(new Set(
+    students
+      .filter(s => !filterFaculty || s.faculty === filterFaculty)
+      .map(s => s.promotion)
+      .filter(Boolean)
+  )) as string[];
+
+  const uniqueCampuses = Array.from(new Set(
+    students
+      .filter(s => (!filterFaculty || s.faculty === filterFaculty) && (!filterPromotion || s.promotion === filterPromotion))
+      .map(s => s.campus)
+      .filter(Boolean)
+  )) as string[];
+
+  const uniqueSpecialties = Array.from(new Set(
+    students
+      .filter(s => (!filterFaculty || s.faculty === filterFaculty) && (!filterPromotion || s.promotion === filterPromotion))
+      .map(s => s.specialty)
+      .filter(Boolean)
+  )) as string[];
 
   const filteredStudents = students.filter(s => {
     const searchLower = searchTerm.toLowerCase().trim();
@@ -220,13 +253,21 @@ export default function StudentManager() {
   const groupedStudents = React.useMemo(() => {
     const groups: Record<string, Student[]> = {};
     sortedStudents.forEach(student => {
-      const key = `${student.promotion || 'Non assignée'} - ${student.faculty || 'Non assigné'}`;
+      const key = `${student.faculty || 'Non assigné'} | ${student.promotion || 'Non assignée'}`;
       if (!groups[key]) {
         groups[key] = [];
       }
       groups[key].push(student);
     });
-    return groups;
+    
+    // Sort groups by Faculty then Promotion
+    const sortedKeys = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+    const sortedGroups: Record<string, Student[]> = {};
+    sortedKeys.forEach(key => {
+      sortedGroups[key] = groups[key];
+    });
+    
+    return sortedGroups;
   }, [sortedStudents]);
 
   const SortIcon = ({ columnKey }: { columnKey: string }) => {
@@ -285,6 +326,52 @@ export default function StudentManager() {
     }
   };
 
+  const handleSaveNew = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newStudent.name || !newStudent.email || !user?.tenantId) return;
+    
+    setIsSaving(true);
+    try {
+      const studentData = {
+        ...newStudent,
+        tenantId: user.tenantId,
+        createdAt: serverTimestamp(),
+        role: 'student'
+      };
+
+      // Remove empty fields
+      Object.keys(studentData).forEach(key => {
+        if ((studentData as any)[key] === '' || (studentData as any)[key] === undefined) {
+          delete (studentData as any)[key];
+        }
+      });
+
+      await addDoc(collection(db, 'users'), studentData);
+      
+      setIsAddingStudent(false);
+      setNewStudent({
+        name: '',
+        email: '',
+        role: 'student',
+        faculty: '',
+        promotion: '',
+        campus: '',
+        specialty: '',
+        matricule: '',
+        status: 'active',
+        phone: '',
+        address: '',
+        libraryAccess: false
+      });
+      alert("L'étudiant a été ajouté avec succès.");
+    } catch (error) {
+      console.error("Erreur lors de l'ajout:", error);
+      alert("Une erreur est survenue lors de l'ajout de l'étudiant.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
   };
@@ -336,10 +423,32 @@ export default function StudentManager() {
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Gestion des Étudiants</h2>
-          <p className="text-sm text-slate-500 mt-1">Gérez les informations détaillées des étudiants.</p>
+          <h2 className="text-2xl font-bold text-slate-800">
+            {view === 'courses' ? 'Gestion des Cours & Programmes' : 'Gestion des Étudiants'}
+          </h2>
+          <p className="text-sm text-slate-500 mt-1">
+            {view === 'courses' ? 'Gérez les cours, programmes et professeurs.' : 'Gérez les informations détaillées des étudiants.'}
+          </p>
         </div>
         <div className="flex items-center gap-3">
+          {view === 'students' && (
+            <button
+              onClick={() => setIsAddingStudent(true)}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-medium transition-all shadow-sm hover:shadow-md"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="hidden sm:inline">Nouvel Étudiant</span>
+            </button>
+          )}
+          {view === 'courses' && (user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'chef') && (
+            <button
+              onClick={() => setManagingCoursesForGroup('Global')}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-medium transition-all shadow-sm hover:shadow-md"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="hidden sm:inline">Nouveau Cours</span>
+            </button>
+          )}
           <button
             onClick={handleExportCSV}
             className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl font-medium hover:bg-slate-50 transition-colors shadow-sm"
@@ -348,8 +457,13 @@ export default function StudentManager() {
             <span className="hidden sm:inline">Exporter CSV</span>
           </button>
           <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-xl font-medium">
-            <GraduationCap className="w-5 h-5" />
-            <span>{students.length} étudiant{students.length !== 1 ? 's' : ''} au total</span>
+            {view === 'courses' ? <BookOpen className="w-5 h-5" /> : <GraduationCap className="w-5 h-5" />}
+            <span>
+              {view === 'courses' 
+                ? `${courses.length} cours au total`
+                : `${students.length} étudiant${students.length !== 1 ? 's' : ''} au total`
+              }
+            </span>
           </div>
         </div>
       </div>
@@ -365,7 +479,7 @@ export default function StudentManager() {
             className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm"
           />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
           <div className="relative w-full">
             <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
@@ -392,7 +506,11 @@ export default function StudentManager() {
             <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <select
               value={filterFaculty}
-              onChange={(e) => setFilterFaculty(e.target.value)}
+              onChange={(e) => {
+                setFilterFaculty(e.target.value);
+                setFilterPromotion('');
+                setFilterSpecialty('');
+              }}
               className="pl-9 pr-8 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-slate-700 w-full appearance-none cursor-pointer"
             >
               <option value="">Toutes les facultés</option>
@@ -405,7 +523,10 @@ export default function StudentManager() {
             <GraduationCap className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <select
               value={filterPromotion}
-              onChange={(e) => setFilterPromotion(e.target.value)}
+              onChange={(e) => {
+                setFilterPromotion(e.target.value);
+                setFilterSpecialty('');
+              }}
               className="pl-9 pr-8 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-slate-700 w-full appearance-none cursor-pointer"
             >
               <option value="">Toutes les promos</option>
@@ -440,10 +561,97 @@ export default function StudentManager() {
               ))}
             </select>
           </div>
+          <button
+            onClick={() => {
+              setSearchTerm('');
+              setFilterFaculty('');
+              setFilterPromotion('');
+              setFilterCampus('');
+              setFilterSpecialty('');
+              setFilterStatus('');
+              setFilterDate('');
+            }}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-sm font-medium transition-all"
+            title="Réinitialiser tous les filtres"
+          >
+            <X className="w-4 h-4" />
+            <span className="lg:hidden xl:inline">Réinitialiser</span>
+          </button>
         </div>
       </div>
 
-      {!selectedGroup ? (
+      {view === 'courses' ? (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {courses.length === 0 ? (
+              <div className="col-span-full bg-white p-12 rounded-2xl border border-slate-200 border-dashed text-center">
+                <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-lg font-bold text-slate-800">Aucun cours trouvé</h3>
+                <p className="text-slate-500">Commencez par ajouter votre premier cours ou programme.</p>
+              </div>
+            ) : (
+              courses.map(course => {
+                const prof = professors.find(p => p.id === course.professorId);
+                return (
+                  <div key={course.id} className="bg-white border border-slate-200 rounded-2xl p-6 hover:shadow-md transition-shadow group flex flex-col">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                        <BookOpen className="w-6 h-6" />
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <div className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-bold">
+                          {course.faculty || 'Non assigné'}
+                        </div>
+                        <div className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs font-bold">
+                          {course.promotion || 'Toutes les promos'}
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-800 mb-2 line-clamp-2">{course.name}</h3>
+                      <div className="flex items-center gap-2 text-sm text-slate-500 mb-6">
+                        <User className="w-4 h-4 text-slate-400" />
+                        <span className="truncate">{prof ? prof.name : 'Professeur non assigné'}</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 mt-auto">
+                      <button 
+                        onClick={() => {
+                          setNewCourseForm({ name: course.name, professorId: course.professorId });
+                          setManagingCoursesForGroup(course.id); // Use course ID to indicate editing
+                        }}
+                        className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2 rounded-xl text-sm font-bold transition-colors"
+                      >
+                        Détails
+                      </button>
+                      {(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'chef') && (
+                        <button 
+                          onClick={() => {
+                            setConfirmAction({
+                              message: `Voulez-vous vraiment supprimer le cours "${course.name}" ?`,
+                              onConfirm: async () => {
+                                try {
+                                  await deleteDoc(doc(db, 'courses', course.id));
+                                  setConfirmAction(null);
+                                } catch (error) {
+                                  console.error("Error deleting course:", error);
+                                }
+                              }
+                            });
+                          }}
+                          className="px-3 bg-red-50 hover:bg-red-100 text-red-600 py-2 rounded-xl text-sm font-bold transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      ) : !selectedGroup ? (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {(Object.entries(groupedStudents) as [string, Student[]][])
@@ -459,7 +667,7 @@ export default function StudentManager() {
                       {groupStudents.length} étudiant{groupStudents.length !== 1 ? 's' : ''}
                     </div>
                     {(() => {
-                      const [promo, fac] = groupName.split(' - ');
+                      const [fac, promo] = groupName.split(' | ');
                       const groupCoursesCount = courses.filter(c => 
                         (c.promotion || 'Non assignée') === promo && 
                         (c.faculty || 'Non assigné') === fac
@@ -473,7 +681,10 @@ export default function StudentManager() {
                     })()}
                   </div>
                 </div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2 line-clamp-2">{groupName}</h3>
+                <div>
+                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1">{groupName.split(' | ')[0]}</p>
+                  <h3 className="text-lg font-bold text-slate-800 mb-2 line-clamp-2">{groupName.split(' | ')[1]}</h3>
+                </div>
                 <p className="text-sm text-slate-500 mb-6 flex-1">
                   Année Académique en cours
                 </p>
@@ -945,6 +1156,189 @@ export default function StudentManager() {
           </div>
         </div>
       )}
+
+      {/* Add Student Modal */}
+      {isAddingStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-auto animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10 rounded-t-2xl">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center">
+                  <User className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Ajouter un nouvel étudiant</h3>
+                  <p className="text-xs text-slate-500">Remplissez les informations pour créer un profil étudiant</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsAddingStudent(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSaveNew} className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Informations Personnelles */}
+                <div className="md:col-span-2">
+                  <h4 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 mb-4">Informations Personnelles</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Nom complet *</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={newStudent.name || ''} 
+                        onChange={(e) => setNewStudent({...newStudent, name: e.target.value})}
+                        placeholder="Ex: Jean Dupont"
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Email *</label>
+                      <input 
+                        type="email" 
+                        required
+                        value={newStudent.email || ''} 
+                        onChange={(e) => setNewStudent({...newStudent, email: e.target.value})}
+                        placeholder="Ex: jean.dupont@exemple.com"
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Téléphone</label>
+                      <div className="relative">
+                        <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input 
+                          type="tel" 
+                          value={newStudent.phone || ''} 
+                          onChange={(e) => setNewStudent({...newStudent, phone: e.target.value})}
+                          placeholder="+243 ..."
+                          className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Matricule</label>
+                      <div className="relative">
+                        <Hash className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input 
+                          type="text" 
+                          value={newStudent.matricule || ''} 
+                          onChange={(e) => setNewStudent({...newStudent, matricule: e.target.value.toUpperCase()})}
+                          placeholder="Ex: 2024ABC123"
+                          className={`w-full pl-9 pr-4 py-2.5 bg-white border rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${
+                            newStudent.matricule && !isMatriculeValid(newStudent.matricule) 
+                              ? 'border-red-300 bg-red-50' 
+                              : 'border-slate-200'
+                          }`}
+                        />
+                      </div>
+                      {newStudent.matricule && !isMatriculeValid(newStudent.matricule) && (
+                        <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          6-15 caractères alphanumériques
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Adresse</label>
+                      <div className="relative">
+                        <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                        <textarea 
+                          value={newStudent.address || ''}
+                          onChange={(e) => setNewStudent({...newStudent, address: e.target.value})}
+                          placeholder="Adresse complète"
+                          rows={2}
+                          className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Informations Académiques */}
+                <div className="md:col-span-2 mt-2">
+                  <h4 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 mb-4">Informations Académiques</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Campus</label>
+                      <input 
+                        type="text" 
+                        value={newStudent.campus || ''}
+                        onChange={(e) => setNewStudent({...newStudent, campus: e.target.value})}
+                        placeholder="Ex: Campus Principal"
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Faculté</label>
+                      <input 
+                        type="text" 
+                        value={newStudent.faculty || ''}
+                        onChange={(e) => setNewStudent({...newStudent, faculty: e.target.value})}
+                        placeholder="Ex: Sciences"
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Spécialité</label>
+                      <input 
+                        type="text" 
+                        value={newStudent.specialty || ''}
+                        onChange={(e) => setNewStudent({...newStudent, specialty: e.target.value})}
+                        placeholder="Ex: Génie Logiciel"
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Promotion</label>
+                      <input 
+                        type="text" 
+                        value={newStudent.promotion || ''}
+                        onChange={(e) => setNewStudent({...newStudent, promotion: e.target.value})}
+                        placeholder="Ex: L3 Info"
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 pt-4 border-t border-slate-100 flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setIsAddingStudent(false)}
+                  className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button 
+                  type="submit"
+                  disabled={isSaving || (newStudent.matricule ? !isMatriculeValid(newStudent.matricule) : false)}
+                  className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {isSaving ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    'Ajouter l\'étudiant'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ID Card Generation Modal */}
       {generatingIdFor && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -1108,13 +1502,41 @@ export default function StudentManager() {
                 <div>
                   <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">Cours associés</h3>
                   {(() => {
-                    const [promo, fac] = managingCoursesForGroup.split(' - ');
-                    const groupCourses = courses.filter(c => 
+                    const isGlobal = managingCoursesForGroup === 'Global';
+                    const isEditing = !isGlobal && !managingCoursesForGroup.includes(' | ');
+                    
+                    if (isEditing) {
+                      const course = courses.find(c => c.id === managingCoursesForGroup);
+                      if (!course) return null;
+                      const prof = professors.find(p => p.id === course.professorId);
+                      return (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                          <h3 className="text-lg font-bold text-slate-800 mb-4">Détails du cours</h3>
+                          <div className="space-y-4">
+                            <div>
+                              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Nom du cours</p>
+                              <p className="text-slate-800 font-medium">{course.name}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Professeur</p>
+                              <p className="text-slate-800 font-medium">{prof ? prof.name : 'Non assigné'}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Faculté / Promotion</p>
+                              <p className="text-slate-800 font-medium">{course.faculty || 'N/A'} | {course.promotion || 'N/A'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const [fac, promo] = !isGlobal ? managingCoursesForGroup.split(' | ') : [null, null];
+                    const groupCourses = !isGlobal ? courses.filter(c => 
                       (c.promotion || 'Non assignée') === promo && 
                       (c.faculty || 'Non assigné') === fac
-                    );
+                    ) : [];
 
-                    if (groupCourses.length === 0) {
+                    if (!isGlobal && groupCourses.length === 0) {
                       return (
                         <div className="text-center py-8 bg-white rounded-xl border border-slate-200 border-dashed">
                           <BookOpen className="w-8 h-8 text-slate-300 mx-auto mb-2" />
@@ -1170,39 +1592,43 @@ export default function StudentManager() {
                 {/* Formulaire d'ajout de cours */}
                 {(user?.role === 'professor' || user?.role === 'admin' || user?.role === 'super_admin') && (
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-6">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">Associer un cours existant</h3>
-                      <div className="flex gap-3">
-                        <select
-                          className="flex-1 px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                          onChange={async (e) => {
-                            if (!e.target.value) return;
-                            const courseId = e.target.value;
-                            const [promo, fac] = managingCoursesForGroup.split(' - ');
-                            try {
-                              await updateDoc(doc(db, 'courses', courseId), {
-                                faculty: fac === 'Non assigné' ? '' : fac,
-                                promotion: promo === 'Non assignée' ? '' : promo
-                              });
-                              e.target.value = ''; // Reset select
-                            } catch (error) {
-                              console.error("Error updating course:", error);
+                    {managingCoursesForGroup !== 'Global' && !courses.find(c => c.id === managingCoursesForGroup) && (
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">Associer un cours existant</h3>
+                        <div className="flex gap-3">
+                          <select
+                            className="flex-1 px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                            onChange={async (e) => {
+                              if (!e.target.value) return;
+                              const courseId = e.target.value;
+                              const [fac, promo] = managingCoursesForGroup.split(' | ');
+                              try {
+                                await updateDoc(doc(db, 'courses', courseId), {
+                                  faculty: fac === 'Non assigné' ? '' : fac,
+                                  promotion: promo === 'Non assignée' ? '' : promo
+                                });
+                                e.target.value = ''; // Reset select
+                              } catch (error) {
+                                console.error("Error updating course:", error);
+                              }
+                            }}
+                          >
+                            <option value="">Sélectionner un cours...</option>
+                            {courses
+                              .filter(c => (user.role === 'professor' ? c.professorId === user.uid : true) && ((c.promotion || 'Non assignée') !== managingCoursesForGroup.split(' | ')[1] || (c.faculty || 'Non assigné') !== managingCoursesForGroup.split(' | ')[0]))
+                              .map(c => (
+                                <option key={c.id} value={c.id}>{c.name} {c.promotion || c.faculty ? `(Actuellement: ${c.faculty || 'N/A'} | ${c.promotion || 'N/A'})` : ''}</option>
+                              ))
                             }
-                          }}
-                        >
-                          <option value="">Sélectionner un cours...</option>
-                          {courses
-                            .filter(c => (user.role === 'professor' ? c.professorId === user.uid : true) && ((c.promotion || 'Non assignée') !== managingCoursesForGroup.split(' - ')[0] || (c.faculty || 'Non assigné') !== managingCoursesForGroup.split(' - ')[1]))
-                            .map(c => (
-                              <option key={c.id} value={c.id}>{c.name} {c.promotion || c.faculty ? `(Actuellement: ${c.promotion || 'N/A'} - ${c.faculty || 'N/A'})` : ''}</option>
-                            ))
-                          }
-                        </select>
+                          </select>
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     <div className="pt-6 border-t border-slate-100">
-                      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">Créer un nouveau cours</h3>
+                      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">
+                        {courses.find(c => c.id === managingCoursesForGroup) ? 'Modifier le cours' : 'Créer un nouveau cours'}
+                      </h3>
                       <form 
                         onSubmit={async (e) => {
                           e.preventDefault();
@@ -1212,23 +1638,32 @@ export default function StudentManager() {
                             return;
                           }
                           
-                          const [promo, fac] = managingCoursesForGroup.split(' - ');
+                          const isEditing = courses.find(c => c.id === managingCoursesForGroup);
                           
                           try {
-                            await addDoc(collection(db, 'courses'), {
-                              name: newCourseForm.name,
-                              faculty: fac === 'Non assigné' ? '' : fac,
-                              promotion: promo === 'Non assignée' ? '' : promo,
-                              professorId: user.role === 'professor' ? user.uid : newCourseForm.professorId,
-                              tenantId: user.tenantId,
-                              createdAt: serverTimestamp(),
-                              description: '',
-                              notes: '',
-                              deadline: ''
-                            });
+                            if (isEditing) {
+                              await updateDoc(doc(db, 'courses', managingCoursesForGroup), {
+                                name: newCourseForm.name,
+                                professorId: user.role === 'professor' ? user.uid : newCourseForm.professorId,
+                              });
+                            } else {
+                              const [fac, promo] = managingCoursesForGroup !== 'Global' ? managingCoursesForGroup.split(' | ') : ['', ''];
+                              await addDoc(collection(db, 'courses'), {
+                                name: newCourseForm.name,
+                                faculty: fac === 'Non assigné' ? '' : fac,
+                                promotion: promo === 'Non assignée' ? '' : promo,
+                                professorId: user.role === 'professor' ? user.uid : newCourseForm.professorId,
+                                tenantId: user.tenantId,
+                                createdAt: serverTimestamp(),
+                                description: '',
+                                notes: '',
+                                deadline: ''
+                              });
+                            }
                             setNewCourseForm({ name: '', professorId: '' });
+                            setManagingCoursesForGroup(null);
                           } catch (error) {
-                            console.error("Error adding course:", error);
+                            console.error("Error saving course:", error);
                           }
                         }}
                         className="flex flex-col gap-3"

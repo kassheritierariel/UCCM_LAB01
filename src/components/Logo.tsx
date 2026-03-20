@@ -1,6 +1,19 @@
 import React from 'react';
 
-export default function Logo({ className = "w-8 h-8", withText = true, primaryColor = "#1A365D" }: { className?: string, withText?: boolean, primaryColor?: string }) {
+export default function Logo({ className = "w-8 h-8", withText = true, primaryColor = "#1A365D", logoUrl }: { className?: string, withText?: boolean, primaryColor?: string, logoUrl?: string }) {
+  if (logoUrl) {
+    return (
+      <div className="flex items-center gap-3">
+        <img src={logoUrl} alt="Logo" className={`${className} object-contain rounded`} />
+        {withText && (
+          <span className="text-xl font-extrabold tracking-tight" style={{ color: primaryColor }}>
+            University<span className="text-[#10b981]">Solution</span>
+          </span>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-3">
       <svg 
@@ -63,7 +76,7 @@ export default function Logo({ className = "w-8 h-8", withText = true, primaryCo
       </svg>
       {withText && (
         <span className="text-xl font-extrabold tracking-tight" style={{ color: primaryColor }}>
-          University<span className="text-[#D4AF37]">Solutions</span>
+          University<span className="text-[#10b981]">Solution</span>
         </span>
       )}
     </div>

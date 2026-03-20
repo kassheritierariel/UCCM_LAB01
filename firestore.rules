@@ -26,7 +26,8 @@ service cloud.firestore {
     //   - name: string (required)
     //   - domain: string (required)
     //   - plan: string (required, enum: 'basic', 'pro', 'enterprise')
-    //   - status: string (required, enum: 'active', 'suspended', 'trial')
+    //   - status: string (required, enum: 'active', 'suspended', 'trial', 'pending')
+    //   - features: list (optional, strings)
     //   - createdAt: timestamp (required)
     //
     // Collection: documents
@@ -106,40 +107,51 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
+    // Optimized role check
     function hasRole(role) {
-      return isAuthenticated() && userExists() && 'role' in getUserData() && getUserData().role == role;
+      return isAuthenticated() && userExists() && getUserData().role == role;
     }
 
     function isSuperAdmin() {
       return isAuthenticated() && (
-        ('email' in request.auth.token && request.auth.token.email == "kassheritier@telgroups.org") ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin')
+        (request.auth.token.email == "kassheritier@telgroups.org") ||
+        hasRole('super_admin')
       );
     }
 
     function isAdmin() {
-      return isSuperAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+      return isAuthenticated() && (isSuperAdmin() || hasRole('admin'));
     }
 
     function isCashier() {
-      return isSuperAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'cashier');
+      return isAuthenticated() && (isSuperAdmin() || hasRole('cashier'));
     }
 
     function isChef() {
-      return isSuperAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'chef');
+      return isAuthenticated() && (isSuperAdmin() || hasRole('chef'));
     }
 
     function isProfessor() {
-      return isSuperAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'professor');
+      return isAuthenticated() && (isSuperAdmin() || hasRole('professor'));
     }
 
     function isStudent() {
-      return isSuperAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student');
+      return isAuthenticated() && (isSuperAdmin() || hasRole('student'));
     }
 
     function isSameTenant(data) {
-      return isSuperAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && data.tenantId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId);
+      return isAuthenticated() && (
+        isSuperAdmin() || 
+        (userExists() && data.tenantId == getUserData().tenantId)
+      );
+    }
+
+    // Helper for collection queries
+    function canReadInTenant(tenantId) {
+      return isAuthenticated() && (
+        isSuperAdmin() || 
+        (userExists() && tenantId == getUserData().tenantId)
+      );
     }
 
     function hasRequiredFields(fields) {
@@ -161,6 +173,13 @@ service cloud.firestore {
              email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
     }
 
+    function isValidMatricule(matricule) {
+      return matricule is string && 
+             matricule.size() >= 6 && 
+             matricule.size() <= 15 && 
+             matricule.matches("^[a-zA-Z0-9]*$");
+    }
+
     function areImmutableFieldsUnchanged(fields) {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
     }
@@ -171,12 +190,14 @@ service cloud.firestore {
 
     function isValidUser(data) {
       return hasRequiredFields(['uid', 'name', 'email', 'role', 'tenantId', 'createdAt']) &&
+             hasOnlyAllowedFields(['uid', 'name', 'email', 'role', 'tenantId', 'createdAt', 'matricule', 'faculty', 'promotion', 'tenantName', 'subscriptionStatus', 'libraryAccess', 'phone', 'address', 'studentId']) &&
              data.uid is string && data.uid.size() > 0 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             isValidEmail(data.email) &&
+             isValidEmail(data.email) && data.email.size() < 100 &&
              data.role in ['student', 'professor', 'admin', 'cashier', 'chef', 'super_admin'] &&
              data.tenantId is string && data.tenantId.size() > 0 &&
              data.createdAt is timestamp &&
+             (!('matricule' in data) || isValidMatricule(data.matricule)) &&
              (!('faculty' in data) || (data.faculty is string && data.faculty.size() < 100)) &&
              (!('promotion' in data) || (data.promotion is string && data.promotion.size() < 100)) &&
              (!('tenantName' in data) || (data.tenantName is string && data.tenantName.size() < 100)) &&
@@ -189,16 +210,20 @@ service cloud.firestore {
 
     function isValidInstitution(data) {
       return hasRequiredFields(['name', 'domain', 'plan', 'status', 'createdAt']) &&
+             hasOnlyAllowedFields(['name', 'domain', 'plan', 'status', 'createdAt', 'features', 'settings', 'contactEmail']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.domain is string && data.domain.size() > 0 && data.domain.size() < 100 &&
              data.plan in ['basic', 'pro', 'enterprise'] &&
-             data.status in ['active', 'suspended', 'trial'] &&
+             data.status in ['active', 'suspended', 'trial', 'pending'] &&
              data.createdAt is timestamp &&
-             (!('settings' in data) || data.settings is map);
+             (!('features' in data) || (data.features is list && data.features.size() <= 20)) &&
+             (!('settings' in data) || data.settings is map) &&
+             (!('contactEmail' in data) || isValidEmail(data.contactEmail));
     }
 
     function isValidDocument(data) {
       return hasRequiredFields(['title', 'type', 'authorId', 'authorName', 'faculty', 'status', 'tenantId', 'createdAt']) &&
+             hasOnlyAllowedFields(['title', 'type', 'authorId', 'authorName', 'faculty', 'status', 'tenantId', 'createdAt', 'promotion', 'courseId', 'fileUrl']) &&
              data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
              data.type in ['tfc', 'memoire', 'pedagogical'] &&
              data.authorId is string && data.authorId.size() > 0 &&
@@ -214,6 +239,7 @@ service cloud.firestore {
 
     function isValidPayment(data) {
       return hasRequiredFields(['studentId', 'studentName', 'amount', 'type', 'status', 'tenantId', 'createdAt']) &&
+             hasOnlyAllowedFields(['studentId', 'studentName', 'amount', 'type', 'status', 'tenantId', 'createdAt', 'receiptUrl']) &&
              data.studentId is string && data.studentId.size() > 0 &&
              data.studentName is string && data.studentName.size() > 0 && data.studentName.size() < 100 &&
              data.amount is number && data.amount > 0 &&
@@ -226,6 +252,7 @@ service cloud.firestore {
 
     function isValidCourse(data) {
       return hasRequiredFields(['name', 'faculty', 'promotion', 'professorId', 'tenantId', 'createdAt']) &&
+             hasOnlyAllowedFields(['name', 'faculty', 'promotion', 'professorId', 'tenantId', 'createdAt', 'status', 'description', 'notes', 'enrolledStudents', 'deadline']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.faculty is string && data.faculty.size() > 0 && data.faculty.size() < 100 &&
              data.promotion is string && data.promotion.size() > 0 && data.promotion.size() < 100 &&
@@ -234,13 +261,14 @@ service cloud.firestore {
              (!('status' in data) || data.status in ['planifié', 'en cours', 'terminé', 'annulé']) &&
              (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
              (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
-             (!('enrolledStudents' in data) || data.enrolledStudents is list) &&
+             (!('enrolledStudents' in data) || (data.enrolledStudents is list && data.enrolledStudents.size() <= 500)) &&
              (!('deadline' in data) || (data.deadline is string && data.deadline.size() <= 100)) &&
              data.createdAt is timestamp;
     }
 
     function isValidNotification(data) {
       return hasRequiredFields(['userId', 'message', 'read', 'tenantId', 'createdAt']) &&
+             hasOnlyAllowedFields(['userId', 'message', 'read', 'tenantId', 'createdAt']) &&
              data.userId is string && data.userId.size() > 0 &&
              data.message is string && data.message.size() > 0 && data.message.size() < 500 &&
              data.read is bool &&
@@ -250,6 +278,7 @@ service cloud.firestore {
 
     function isValidMessage(data) {
       return hasRequiredFields(['groupId', 'senderId', 'senderName', 'text', 'tenantId', 'createdAt']) &&
+             hasOnlyAllowedFields(['groupId', 'senderId', 'senderName', 'text', 'tenantId', 'createdAt']) &&
              data.groupId is string && data.groupId.size() > 0 && data.groupId.size() < 100 &&
              data.senderId is string && data.senderId.size() > 0 &&
              data.senderName is string && data.senderName.size() > 0 && data.senderName.size() < 100 &&
@@ -260,6 +289,7 @@ service cloud.firestore {
 
     function isValidLibraryResource(data) {
       return hasRequiredFields(['title', 'author', 'level', 'type', 'size', 'tenantId', 'createdAt']) &&
+             hasOnlyAllowedFields(['title', 'author', 'level', 'type', 'size', 'tenantId', 'createdAt', 'downloads', 'rating', 'fileUrl', 'faculty', 'promotion']) &&
              data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
              data.author is string && data.author.size() > 0 && data.author.size() < 100 &&
              data.level in ['primaire', 'secondaire', 'humanites', 'universitaire', 'autres'] &&
@@ -281,8 +311,8 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isSuperAdmin();
       allow read: if isAuthenticated() && isOwner(userId);
-      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId;
-      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
+      allow read: if canReadInTenant(resource.data.tenantId) && (isAdmin() || isCashier() || isChef());
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && request.resource.data.createdAt == request.time && (
         (isOwner(userId) && request.resource.data.role == 'student') || 
         (isAdmin() && (isSuperAdmin() || request.resource.data.role != 'super_admin')) ||
         (isOwner(userId) && request.resource.data.email.matches("^demo\\..*@saas\\.edu$")) || // ALLOW DEMO ACCOUNTS
@@ -298,9 +328,9 @@ service cloud.firestore {
 
     match /institutions/{institutionId} {
       allow read: if isSuperAdmin();
-      allow read: if isAuthenticated() && userExists() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == institutionId;
+      allow read: if isAuthenticated() && userExists() && getUserData().tenantId == institutionId;
       allow read: if isAuthenticated() && 'email' in request.auth.token && resource != null && 'contactEmail' in resource.data && resource.data.contactEmail == request.auth.token.email;
-      allow create: if isSuperAdmin() && isValidInstitution(request.resource.data);
+      allow create: if isSuperAdmin() && isValidInstitution(request.resource.data) && request.resource.data.createdAt == request.time;
       allow update: if isAuthenticated() && isValidInstitution(request.resource.data) && areImmutableFieldsUnchanged(['createdAt']) && (
         isSuperAdmin() || 
         (isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == institutionId && areImmutableFieldsUnchanged(['domain', 'plan', 'status']))
@@ -310,8 +340,8 @@ service cloud.firestore {
 
     match /documents/{docId} {
       allow read: if isSuperAdmin();
-      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId;
-      allow create: if isAuthenticated() && isValidDocument(request.resource.data) && isSameTenant(request.resource.data) && (
+      allow read: if canReadInTenant(resource.data.tenantId);
+      allow create: if isAuthenticated() && isValidDocument(request.resource.data) && isSameTenant(request.resource.data) && request.resource.data.createdAt == request.time && (
         (request.resource.data.authorId == request.auth.uid) || isAdmin()
       );
       allow update: if isAuthenticated() && isValidDocument(request.resource.data) && isSameTenant(resource.data) && (
@@ -323,8 +353,9 @@ service cloud.firestore {
 
     match /payments/{paymentId} {
       allow read: if isSuperAdmin();
-      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId && (resource.data.studentId == request.auth.uid || isAdmin() || isCashier());
-      allow create: if isAuthenticated() && isValidPayment(request.resource.data) && isSameTenant(request.resource.data) && (
+      allow read: if canReadInTenant(resource.data.tenantId) && (isAdmin() || isCashier());
+      allow read: if canReadInTenant(resource.data.tenantId) && resource.data.studentId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidPayment(request.resource.data) && isSameTenant(request.resource.data) && request.resource.data.createdAt == request.time && (
         request.resource.data.studentId == request.auth.uid || isAdmin()
       );
       allow update: if isAuthenticated() && isValidPayment(request.resource.data) && isSameTenant(resource.data) && (
@@ -335,33 +366,43 @@ service cloud.firestore {
 
     match /courses/{courseId} {
       allow read: if isSuperAdmin();
-      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId;
-      allow create: if isAuthenticated() && isValidCourse(request.resource.data) && isSameTenant(request.resource.data) && (isAdmin() || isProfessor());
-      allow update: if isAuthenticated() && isValidCourse(request.resource.data) && isSameTenant(resource.data) && (isAdmin() || (isProfessor() && resource.data.professorId == request.auth.uid));
+      allow read: if canReadInTenant(resource.data.tenantId);
+      allow create: if isAuthenticated() && isValidCourse(request.resource.data) && isSameTenant(request.resource.data) && request.resource.data.createdAt == request.time && (isAdmin() || isProfessor());
+      allow update: if isAuthenticated() && isValidCourse(request.resource.data) && isSameTenant(resource.data) && (
+        (isAdmin() && areImmutableFieldsUnchanged(['tenantId', 'createdAt'])) || 
+        (isProfessor() && resource.data.professorId == request.auth.uid && areImmutableFieldsUnchanged(['professorId', 'tenantId', 'createdAt']))
+      );
       allow delete: if isAuthenticated() && isSameTenant(resource.data) && (isAdmin() || (isProfessor() && resource.data.professorId == request.auth.uid));
     }
 
     match /notifications/{notificationId} {
       allow read: if isSuperAdmin();
-      allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId && (resource.data.userId == request.auth.uid || isAdmin() || isChef() || isCashier());
-      allow create: if isAuthenticated() && isValidNotification(request.resource.data) && isSameTenant(request.resource.data);
-      allow update: if isAuthenticated() && isValidNotification(request.resource.data) && isSameTenant(resource.data) && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if canReadInTenant(resource.data.tenantId) && (isAdmin() || isChef() || isCashier());
+      allow read: if canReadInTenant(resource.data.tenantId) && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidNotification(request.resource.data) && isSameTenant(request.resource.data) && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isValidNotification(request.resource.data) && isSameTenant(resource.data) && (
+        (resource.data.userId == request.auth.uid && areImmutableFieldsUnchanged(['userId', 'tenantId', 'createdAt'])) || 
+        (isAdmin() && areImmutableFieldsUnchanged(['tenantId', 'createdAt']))
+      );
       allow delete: if isAuthenticated() && isSameTenant(resource.data) && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     match /messages/{messageId} {
       allow read: if isSuperAdmin();
       allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId;
-      allow create: if isAuthenticated() && isValidMessage(request.resource.data) && isSameTenant(request.resource.data) && request.resource.data.senderId == request.auth.uid;
-      allow update: if isAuthenticated() && isValidMessage(request.resource.data) && isSameTenant(resource.data) && (resource.data.senderId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidMessage(request.resource.data) && isSameTenant(request.resource.data) && request.resource.data.senderId == request.auth.uid && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isValidMessage(request.resource.data) && isSameTenant(resource.data) && (
+        (resource.data.senderId == request.auth.uid && areImmutableFieldsUnchanged(['groupId', 'senderId', 'tenantId', 'createdAt'])) || 
+        (isAdmin() && areImmutableFieldsUnchanged(['tenantId', 'createdAt']))
+      );
       allow delete: if isAuthenticated() && isSameTenant(resource.data) && (resource.data.senderId == request.auth.uid || isAdmin());
     }
 
     match /library_resources/{resourceId} {
       allow read: if isSuperAdmin();
       allow read: if isAuthenticated() && userExists() && resource.data.tenantId == getUserData().tenantId;
-      allow create: if isAuthenticated() && isValidLibraryResource(request.resource.data) && isSameTenant(request.resource.data) && isAdmin();
-      allow update: if isAuthenticated() && isValidLibraryResource(request.resource.data) && isSameTenant(resource.data) && isAdmin();
+      allow create: if isAuthenticated() && isValidLibraryResource(request.resource.data) && isSameTenant(request.resource.data) && isAdmin() && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isValidLibraryResource(request.resource.data) && isSameTenant(resource.data) && isAdmin() && areImmutableFieldsUnchanged(['tenantId', 'createdAt']);
       allow delete: if isAuthenticated() && isSameTenant(resource.data) && isAdmin();
     }
 
@@ -369,10 +410,15 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && 
                     request.resource.data.keys().hasAll(['text', 'senderId', 'senderName', 'timestamp']) &&
+                    request.resource.data.keys().hasOnly(['text', 'senderId', 'senderName', 'timestamp']) &&
                     request.resource.data.text is string &&
+                    request.resource.data.text.size() > 0 &&
+                    request.resource.data.text.size() < 1000 &&
                     request.resource.data.senderId == request.auth.uid &&
                     request.resource.data.senderName is string &&
-                    request.resource.data.timestamp is timestamp;
+                    request.resource.data.senderName.size() > 0 &&
+                    request.resource.data.senderName.size() < 100 &&
+                    request.resource.data.timestamp == request.time;
       allow update, delete: if false; // Messages in general chat are immutable for now
     }
   }

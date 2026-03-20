@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
-import { Video, Image as ImageIcon, Mic, MapPin, Loader2, Play, Square, AlertCircle, ExternalLink, Download } from 'lucide-react';
+import { Video, Image as ImageIcon, Mic, MapPin, Loader2, Play, Square, AlertCircle, ExternalLink, Download, BookOpen, FileText, Sparkles as SparklesIcon } from 'lucide-react';
+import Markdown from 'react-markdown';
 
 // --- Helper to check API Key ---
 const ensureApiKey = async () => {
@@ -13,16 +14,17 @@ const ensureApiKey = async () => {
 };
 
 export default function AITools() {
-  const [activeTab, setActiveTab] = useState('maps');
+  const [activeTab, setActiveTab] = useState('course');
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <h2 className="text-2xl font-bold text-slate-800">Outils IA Avancés</h2>
-        <p className="text-sm text-slate-500 mt-1">Générez des vidéos, des images, discutez avec l'IA ou explorez des lieux.</p>
+        <p className="text-sm text-slate-500 mt-1">Générez des plans de cours, des vidéos, des images ou explorez des lieux.</p>
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-2">
+        <TabButton active={activeTab === 'course'} onClick={() => setActiveTab('course')} icon={<BookOpen className="w-4 h-4" />} label="Plan de Cours" />
         <TabButton active={activeTab === 'maps'} onClick={() => setActiveTab('maps')} icon={<MapPin className="w-4 h-4" />} label="Explorer (Maps)" />
         <TabButton active={activeTab === 'image'} onClick={() => setActiveTab('image')} icon={<ImageIcon className="w-4 h-4" />} label="Générer Image" />
         <TabButton active={activeTab === 'video'} onClick={() => setActiveTab('video')} icon={<Video className="w-4 h-4" />} label="Animer Image (Veo)" />
@@ -30,11 +32,187 @@ export default function AITools() {
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 min-h-[500px]">
+        {activeTab === 'course' && <CoursePlanTool />}
         {activeTab === 'maps' && <MapsTool />}
         {activeTab === 'image' && <ImageGenerationTool />}
         {activeTab === 'video' && <VideoGenerationTool />}
         {activeTab === 'audio' && <AudioTool />}
       </div>
+    </div>
+  );
+}
+
+// --- Course Plan Generator Tool ---
+function CoursePlanTool() {
+  const [subject, setSubject] = useState('Créer des rôles et des permissions pour les utilisateurs');
+  const [level, setLevel] = useState('Étudiants en Administration des Systèmes (L2/L3)');
+  const [duration, setDuration] = useState('8 semaines');
+  const [plan, setPlan] = useState(`
+# Plan de Cours : Gestion des Rôles et des Permissions (RBAC & IAM)
+
+## 1. Objectifs du cours
+*   Comprendre les principes de base de la sécurité des accès (Moindre Privilège, Séparation des tâches).
+*   Maîtriser la gestion des utilisateurs et des groupes sous Linux et Windows Server.
+*   Implémenter le contrôle d'accès basé sur les rôles (RBAC).
+*   Comprendre les listes de contrôle d'accès (ACL) et les permissions spéciales.
+*   S'initier à la gestion des identités et des accès (IAM) dans le Cloud (AWS/Azure).
+*   Auditer et surveiller les accès aux ressources critiques.
+
+## 2. Prérequis
+*   Bases de l'utilisation d'un système d'exploitation (Ligne de commande).
+*   Notions fondamentales sur les systèmes de fichiers.
+*   Compréhension basique des réseaux (Authentification, protocoles).
+
+## 3. Structure hebdomadaire (8 semaines)
+
+| Semaine | Thème | Contenu |
+| :--- | :--- | :--- |
+| 1 | Fondamentaux de la Sécurité | Principes de la CIA, Identification vs Authentification vs Autorisation. |
+| 2 | Permissions Standard (Linux/Unix) | Propriétaires, Groupes, Autres (rwx). Sticky bit, SUID, SGID. |
+| 3 | ACL Avancées (Linux) | Utilisation de \`getfacl\` et \`setfacl\`. Masques et héritage. |
+| 4 | Active Directory & NTFS (Windows) | Gestion des utilisateurs/groupes AD. Permissions NTFS vs Partage. |
+| 5 | RBAC (Role-Based Access Control) | Définition des rôles, hiérarchies, affectation des permissions aux rôles. |
+| 6 | IAM dans le Cloud | Introduction à AWS IAM ou Azure AD. Politiques JSON, Rôles, Groupes. |
+| 7 | Automatisation & Scripts | Gestion des permissions via Bash/PowerShell. Ansible pour les droits. |
+| 8 | Audit & Conformité | Journaux d'accès, outils d'audit (Aureport, Event Viewer). Examen final. |
+
+## 4. Méthodes d'évaluation
+*   **Travaux Pratiques (50%)** : Configuration de serveurs avec des structures de permissions complexes.
+*   **Étude de Cas (20%)** : Analyse d'un scénario d'entreprise et conception d'une matrice de rôles.
+*   **Examen Final (30%)** : QCM théorique et résolution de problèmes en environnement simulé.
+
+## 5. Ressources recommandées
+*   *Linux Administration Handbook* par Evi Nemeth.
+*   Documentation Microsoft Learn sur Active Directory.
+*   AWS IAM Best Practices Guide.
+*   Outils : \`chmod\`, \`chown\`, \`setfacl\`, PowerShell, Terraform (pour IAM).
+`);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleGenerate = async () => {
+    if (!subject.trim()) return;
+    setLoading(true);
+    setPlan('');
+    setError('');
+
+    try {
+      const apiKey = (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) || import.meta.env.VITE_GEMINI_API_KEY;
+      const ai = new GoogleGenAI({ apiKey });
+      
+      const prompt = `En tant que professeur expert, génère un plan de cours détaillé et structuré pour le sujet suivant : "${subject}".
+      Public cible : ${level}
+      Durée estimée : ${duration}
+      
+      Le plan doit inclure :
+      1. Objectifs du cours
+      2. Prérequis
+      3. Structure hebdomadaire (ou par modules)
+      4. Méthodes d'évaluation
+      5. Ressources recommandées
+      
+      Réponds en utilisant le format Markdown avec des titres clairs.`;
+
+      const res = await ai.models.generateContent({
+        model: "gemini-2.0-flash",
+        contents: prompt,
+      });
+
+      setPlan(res.text || '');
+    } catch (err: any) {
+      console.error(err);
+      setError("Une erreur s'est produite lors de la génération du plan de cours.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6 max-w-4xl mx-auto">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
+          <BookOpen className="w-6 h-6" />
+        </div>
+        <div>
+          <h3 className="text-xl font-bold text-slate-800">Générateur de Plan de Cours</h3>
+          <p className="text-sm text-slate-500">Utilisez l'IA pour structurer vos enseignements en quelques secondes.</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-6 rounded-2xl border border-slate-200">
+        <div className="md:col-span-3">
+          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Sujet du cours</label>
+          <input 
+            type="text" 
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+            placeholder="Ex: Introduction à l'IA..."
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Niveau / Public</label>
+          <input 
+            type="text" 
+            value={level}
+            onChange={(e) => setLevel(e.target.value)}
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Durée</label>
+          <input 
+            type="text" 
+            value={duration}
+            onChange={(e) => setDuration(e.target.value)}
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+          />
+        </div>
+        <div className="flex items-end">
+          <button 
+            onClick={handleGenerate}
+            disabled={loading || !subject.trim()}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2 transition-all shadow-sm"
+          >
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <SparklesIcon className="w-5 h-5" />}
+            Générer le plan
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm flex items-center gap-3 border border-red-100">
+          <AlertCircle className="w-5 h-5 shrink-0" /> 
+          <p>{error}</p>
+        </div>
+      )}
+
+      {plan && (
+        <div className="mt-8 space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex items-center justify-between">
+            <h4 className="font-bold text-slate-800 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-indigo-500" />
+              Plan de cours généré :
+            </h4>
+            <button 
+              onClick={() => {
+                const blob = new Blob([plan], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `plan-cours-${subject.slice(0, 20)}.md`;
+                a.click();
+              }}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1.5 bg-indigo-50 px-4 py-2 rounded-xl"
+            >
+              <Download className="w-4 h-4" /> Télécharger (.md)
+            </button>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm prose prose-slate max-w-none">
+            <Markdown>{plan}</Markdown>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

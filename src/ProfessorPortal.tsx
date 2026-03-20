@@ -60,9 +60,41 @@ interface AppNotification {
 
 export default function ProfessorPortal() {
   const { user, signOut } = useAuth();
-  const [activeTab, setActiveTab] = useState<'courses' | 'students' | 'ai'>('courses');
+  const [tenantSettings, setTenantSettings] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<string>('courses');
   
   const [courses, setCourses] = useState<Course[]>([]);
+
+  useEffect(() => {
+    if (!user?.tenantId) return;
+    const unsubscribe = onSnapshot(doc(db, 'institutions', user.tenantId), (doc) => {
+      if (doc.exists()) {
+        setTenantSettings(doc.data());
+      }
+    });
+    return () => unsubscribe();
+  }, [user?.tenantId]);
+
+  const tabs = [
+    { id: 'courses', name: 'Mes Cours & Documents', icon: null, feature: 'courses' },
+    { id: 'students', name: 'Mes Promotions', icon: null, feature: 'students' },
+    { id: 'ai', name: 'Outils IA', icon: Sparkles, feature: 'ai' },
+  ];
+
+  const allowedTabs = tabs.filter(tab => {
+    if (tenantSettings?.settings?.rolePermissions?.professor) {
+      return tenantSettings.settings.rolePermissions.professor.includes(tab.feature);
+    }
+    // Default fallback if no permissions defined
+    return true;
+  });
+
+  // Ensure activeTab is valid
+  useEffect(() => {
+    if (allowedTabs.length > 0 && !allowedTabs.find(t => t.id === activeTab)) {
+      setActiveTab(allowedTabs[0].id);
+    }
+  }, [allowedTabs, activeTab]);
   const [students, setStudents] = useState<Student[]>([]);
   const [courseDocuments, setCourseDocuments] = useState<CourseDocument[]>([]);
   
@@ -629,26 +661,17 @@ export default function ProfessorPortal() {
           </span>
         </nav>
 
-        <div className="flex gap-4 border-b border-slate-200 pb-2">
-          <button 
-            onClick={() => setActiveTab('courses')}
-            className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors ${activeTab === 'courses' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-500 hover:text-slate-800'}`}
-          >
-            Mes Cours & Documents
-          </button>
-          <button 
-            onClick={() => setActiveTab('students')}
-            className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors ${activeTab === 'students' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-500 hover:text-slate-800'}`}
-          >
-            Mes Promotions
-          </button>
-          <button 
-            onClick={() => setActiveTab('ai')}
-            className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors flex items-center gap-2 ${activeTab === 'ai' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-500 hover:text-slate-800'}`}
-          >
-            <Sparkles className="w-4 h-4" />
-            Outils IA
-          </button>
+        <div className="flex gap-4 border-b border-slate-200 pb-2 overflow-x-auto">
+          {allowedTabs.map(tab => (
+            <button 
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === tab.id ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-500 hover:text-slate-800'}`}
+            >
+              {tab.icon && <tab.icon className="w-4 h-4" />}
+              {tab.name}
+            </button>
+          ))}
         </div>
 
         {activeTab === 'courses' && (
@@ -1034,8 +1057,8 @@ export default function ProfessorPortal() {
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
             <h2 className="text-xl font-bold text-slate-800 mb-6">Promotions & Étudiants</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {Array.from(new Set(students.map(s => `${s.promotion || 'Non assignée'}|${s.faculty || 'Non assigné'}`))).map(uniquePromo => {
-                const [promotion, faculty] = (uniquePromo as string).split('|');
+              {Array.from(new Set(students.map(s => `${s.faculty || 'Non assigné'} | ${s.promotion || 'Non assignée'}`))).map(uniquePromo => {
+                const [faculty, promotion] = (uniquePromo as string).split(' | ');
                 const count = getEnrolledStudentsCount(faculty === 'Non assigné' ? undefined : faculty, promotion === 'Non assignée' ? undefined : promotion);
                 const groupCourses = courses.filter(c => (c.promotion || 'Non assignée') === promotion && (c.faculty || 'Non assigné') === faculty);
                 
@@ -1043,7 +1066,8 @@ export default function ProfessorPortal() {
                   <div key={uniquePromo} className="border border-slate-200 rounded-xl p-6 hover:border-emerald-500 transition-colors cursor-pointer group">
                     <div className="flex justify-between items-start mb-4">
                       <div>
-                        <h3 className="text-lg font-bold text-slate-800 group-hover:text-emerald-600 transition-colors">{promotion} {faculty}</h3>
+                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">{faculty}</p>
+                        <h3 className="text-lg font-bold text-slate-800 group-hover:text-emerald-600 transition-colors">{promotion}</h3>
                         <p className="text-sm text-slate-500">Année Académique en cours</p>
                       </div>
                       <div className="flex flex-col items-end gap-2">
@@ -1072,7 +1096,7 @@ export default function ProfessorPortal() {
 
                     <div className="flex gap-3 mt-6">
                       <button 
-                        onClick={() => setManagingCoursesForGroup(`${promotion} - ${faculty}`)}
+                        onClick={() => setManagingCoursesForGroup(`${faculty} | ${promotion}`)}
                         className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
                       >
                         <BookOpen className="h-4 w-4" />
@@ -1475,7 +1499,7 @@ export default function ProfessorPortal() {
                 <div>
                   <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">Cours associés</h3>
                   {(() => {
-                    const [promo, fac] = managingCoursesForGroup.split(' - ');
+                    const [fac, promo] = managingCoursesForGroup.split(' | ');
                     const groupCourses = courses.filter(c => 
                       (c.promotion || 'Non assignée') === promo && 
                       (c.faculty || 'Non assigné') === fac
@@ -1537,7 +1561,7 @@ export default function ProfessorPortal() {
                         onChange={async (e) => {
                           if (!e.target.value) return;
                           const courseId = e.target.value;
-                          const [promo, fac] = managingCoursesForGroup.split(' - ');
+                          const [fac, promo] = managingCoursesForGroup.split(' | ');
                           try {
                             await updateDoc(doc(db, 'courses', courseId), {
                               faculty: fac === 'Non assigné' ? '' : fac,
@@ -1553,9 +1577,9 @@ export default function ProfessorPortal() {
                       >
                         <option value="">Sélectionner un cours...</option>
                         {courses
-                          .filter(c => (c.promotion || 'Non assignée') !== managingCoursesForGroup.split(' - ')[0] || (c.faculty || 'Non assigné') !== managingCoursesForGroup.split(' - ')[1])
+                          .filter(c => (c.promotion || 'Non assignée') !== managingCoursesForGroup.split(' | ')[1] || (c.faculty || 'Non assigné') !== managingCoursesForGroup.split(' | ')[0])
                           .map(c => (
-                            <option key={c.id} value={c.id}>{c.name} {c.promotion || c.faculty ? `(Actuellement: ${c.promotion || 'N/A'} - ${c.faculty || 'N/A'})` : ''}</option>
+                            <option key={c.id} value={c.id}>{c.name} {c.promotion || c.faculty ? `(Actuellement: ${c.faculty || 'N/A'} | ${c.promotion || 'N/A'})` : ''}</option>
                           ))
                         }
                       </select>

@@ -6,7 +6,7 @@ import {
   BookOpen, Bell, Users, Banknote, Clock, PieChart, Download, Printer,
   UserPlus, CircleDollarSign, FileText, Settings, ChevronRight, ArrowRight,
   MoreHorizontal, ArrowUpRight, LogOut, LayoutDashboard, Search, Menu, X,
-  GraduationCap, Briefcase, Award, ShieldCheck, Calculator, Building2, Sparkles, Library
+  GraduationCap, Briefcase, Award, ShieldCheck, Calculator, Building2, Sparkles, Library, Smartphone
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -19,6 +19,58 @@ import InstitutionsManager from './components/InstitutionsManager';
 import AITools from './components/AITools';
 import SettingsManager from './components/SettingsManager';
 import DigitalLibrary from './components/DigitalLibrary';
+import { auth as firebaseAuth } from './firebase';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: firebaseAuth.currentUser?.uid,
+      email: firebaseAuth.currentUser?.email,
+      emailVerified: firebaseAuth.currentUser?.emailVerified,
+      isAnonymous: firebaseAuth.currentUser?.isAnonymous,
+      tenantId: (firebaseAuth.currentUser as any)?.tenantId, // Custom property if available
+      providerInfo: firebaseAuth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 const DistributionBar = ({ label, percentage, colorClass }: { label: string, percentage: number, colorClass: string }) => {
   const colorMap: Record<string, { bg: string, text: string, barBg: string, barFill: string }> = {
@@ -94,7 +146,7 @@ export default function Dashboard() {
         setTenantSettings(docSnap.data());
       }
     }, (error) => {
-      console.error("Error fetching tenant settings:", error);
+      handleFirestoreError(error, OperationType.GET, `institutions/${user.tenantId}`);
     });
     
     return () => unsubscribe();
@@ -110,7 +162,7 @@ export default function Dashboard() {
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setInstitutionsCount(snapshot.size);
       }, (error) => {
-        console.error("Error fetching institutions count:", error);
+        handleFirestoreError(error, OperationType.LIST, 'institutions');
       });
       return () => unsubscribe();
     }
@@ -125,7 +177,7 @@ export default function Dashboard() {
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setUsersCount(snapshot.size);
       }, (error) => {
-        console.error("Error fetching users count:", error);
+        handleFirestoreError(error, OperationType.LIST, 'users');
       });
       return () => unsubscribe();
     }
@@ -139,7 +191,7 @@ export default function Dashboard() {
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setDocsCount(snapshot.size);
       }, (error) => {
-        console.error("Error fetching docs count:", error);
+        handleFirestoreError(error, OperationType.LIST, 'documents');
       });
       return () => unsubscribe();
     }
@@ -159,7 +211,7 @@ export default function Dashboard() {
         });
         setTotalRevenue(rev);
       }, (error) => {
-        console.error("Error fetching payments count:", error);
+        handleFirestoreError(error, OperationType.LIST, 'payments');
       });
       return () => unsubscribe();
     }
@@ -181,7 +233,7 @@ export default function Dashboard() {
       const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setNotifications(notifs);
     }, (error) => {
-      console.error("Error fetching notifications:", error);
+      handleFirestoreError(error, OperationType.LIST, 'notifications');
     });
     return () => unsubscribe();
   }, [user]);
@@ -205,6 +257,7 @@ export default function Dashboard() {
     { id: 'institutions', name: 'Institutions SaaS', icon: Building2, roles: ['super_admin'], group: 'Gestion' },
     { id: 'users', name: 'Utilisateurs', icon: Users, roles: ['admin', 'super_admin'], group: 'Gestion' },
     { id: 'students', name: 'Étudiants', icon: GraduationCap, roles: ['admin', 'chef', 'super_admin'], group: 'Gestion', feature: 'students' },
+    { id: 'courses', name: 'Cours & Programmes', icon: BookOpen, roles: ['admin', 'chef', 'super_admin', 'professor'], group: 'Gestion', feature: 'courses' },
     { id: 'documents', name: 'Documents & TFC', icon: FileText, roles: ['admin', 'chef', 'super_admin'], group: 'Gestion', feature: 'documents' },
     { id: 'payments', name: 'Paiements', icon: CircleDollarSign, roles: ['admin', 'cashier', 'super_admin'], group: 'Gestion', feature: 'payments' },
     { id: 'library', name: 'Bibliothèque Numérique', icon: Library, roles: ['admin', 'chef', 'super_admin', 'student', 'professor'], group: 'Outils', feature: 'library' },
@@ -213,8 +266,20 @@ export default function Dashboard() {
   ];
 
   const allowedNav = navigation.filter(item => {
+    // Super admin always has access to everything in the list if their role is included
+    if (user?.role === 'super_admin') return item.roles.includes('super_admin');
+
+    // Check if the role has explicit permission for this item id in the institution settings
+    if (tenantSettings?.settings?.rolePermissions && user?.role) {
+      const rolePerms = tenantSettings.settings.rolePermissions[user.role];
+      if (rolePerms) {
+        // If the role has a defined list of permissions, use it
+        return rolePerms.includes(item.id);
+      }
+    }
+
+    // Fallback to legacy check if rolePermissions is not set for this role
     if (!item.roles.includes(user?.role || '')) return false;
-    if (user?.role === 'super_admin') return true;
     if (item.feature && tenantSettings?.features) {
       return tenantSettings.features.includes(item.feature);
     }
@@ -273,11 +338,11 @@ export default function Dashboard() {
         
         <div className="relative flex items-center justify-between h-16 px-6 bg-black/20 border-b border-white/10">
           <div className="flex items-center gap-3">
-            {tenantSettings?.settings?.logoUrl ? (
-              <img src={tenantSettings.settings.logoUrl} alt="Logo" className="h-8 w-auto rounded object-contain bg-white/10 p-1" />
-            ) : (
-              <Logo className="w-8 h-8" withText={false} />
-            )}
+            <Logo 
+              className="w-8 h-8" 
+              withText={false} 
+              logoUrl={tenantSettings?.settings?.logoUrl} 
+            />
             <span className="text-lg font-extrabold text-white tracking-tight truncate">
               {tenantSettings?.name || user?.tenantName || 'UCCM'}
             </span>
@@ -427,6 +492,53 @@ export default function Dashboard() {
         {/* Scrollable Content Area */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           
+          {/* Subscription Status Banner */}
+          {user?.role !== 'super_admin' && tenantSettings?.status && tenantSettings.status !== 'active' && (
+            <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-6 flex flex-col md:flex-row items-center gap-6 shadow-sm">
+              <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
+                <CircleDollarSign className="w-8 h-8 text-amber-600" />
+              </div>
+              <div className="flex-1 text-center md:text-left">
+                <h3 className="text-lg font-bold text-amber-900 flex items-center justify-center md:justify-start gap-2">
+                  Abonnement {tenantSettings.status === 'trial' ? 'en Essai' : 'Suspendu'}
+                  <span className="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Action Requise
+                  </span>
+                </h3>
+                <p className="text-amber-800/80 mt-1 text-sm max-w-2xl">
+                  Votre compte institutionnel n'est pas encore activé ou est suspendu. Pour continuer à utiliser toutes les fonctionnalités, veuillez effectuer votre paiement via M-Pesa.
+                </p>
+                <div className="mt-4 flex flex-wrap items-center justify-center md:justify-start gap-4">
+                  <div className="bg-white px-4 py-2 rounded-xl border border-amber-200 flex items-center gap-3">
+                    <Smartphone className="w-5 h-5 text-amber-600" />
+                    <div>
+                      <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">Numéro M-Pesa</p>
+                      <p className="text-sm font-bold text-slate-800">+243 818 261 297</p>
+                    </div>
+                  </div>
+                  <div className="bg-white px-4 py-2 rounded-xl border border-amber-200 flex items-center gap-3">
+                    <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                    <div>
+                      <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">Confirmation</p>
+                      <p className="text-sm font-bold text-slate-800">Activation immédiate après vérification</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="shrink-0">
+                <a 
+                  href="https://wa.me/243818261297" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5"
+                >
+                  <Bell className="w-5 h-5" />
+                  Envoyer Preuve
+                </a>
+              </div>
+            </div>
+          )}
+
           {/* OVERVIEW TAB */}
           {activeTab === 'overview' && (
             <div className="space-y-6 max-w-7xl mx-auto">
@@ -719,7 +831,10 @@ export default function Dashboard() {
           {activeTab === 'users' && <UsersManager />}
 
           {/* STUDENTS TAB */}
-          {activeTab === 'students' && <StudentManager />}
+          {activeTab === 'students' && <StudentManager view="students" />}
+
+          {/* COURSES TAB */}
+          {activeTab === 'courses' && <StudentManager view="courses" />}
 
           {/* DOCUMENTS TAB */}
           {activeTab === 'documents' && <DocumentsManager />}

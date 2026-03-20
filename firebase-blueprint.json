@@ -9,6 +9,7 @@
         "name": { "type": "string", "description": "Full name" },
         "email": { "type": "string", "format": "email" },
         "role": { "type": "string", "enum": ["student", "professor", "admin", "cashier", "chef", "super_admin"] },
+        "matricule": { "type": "string", "description": "Student ID number (alphanumeric, 6-15 chars)" },
         "faculty": { "type": "string", "description": "Faculty name (if applicable)" },
         "promotion": { "type": "string", "description": "Promotion/Year (if student)" },
         "subscriptionStatus": { "type": "string", "enum": ["active", "inactive"], "description": "Subscription for accessing restricted docs" },
@@ -104,7 +105,8 @@
         "name": { "type": "string" },
         "domain": { "type": "string" },
         "plan": { "type": "string", "enum": ["basic", "pro", "enterprise"] },
-        "status": { "type": "string", "enum": ["active", "suspended", "trial"] },
+        "status": { "type": "string", "enum": ["active", "suspended", "trial", "pending"] },
+        "features": { "type": "array", "items": { "type": "string" }, "description": "List of enabled features" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "domain", "plan", "status", "createdAt"]
